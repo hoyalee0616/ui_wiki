@@ -100,6 +100,74 @@ function diffInDays(from: string, to: string) {
   return Math.round((end.getTime() - start.getTime()) / 86400000);
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeHex(value: string) {
+  const cleaned = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(cleaned)) {
+    return `#${cleaned.split("").map((char) => `${char}${char}`).join("")}`.toUpperCase();
+  }
+  if (/^[0-9a-f]{6}$/i.test(cleaned)) return `#${cleaned.toUpperCase()}`;
+  return "#5B8DEF";
+}
+
+function hexToRgb(hex: string) {
+  const normalized = normalizeHex(hex).slice(1);
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
+  const red = r / 255;
+  const green = g / 255;
+  const blue = b / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: Math.round(lightness * 100) };
+
+  const delta = max - min;
+  const saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  const hue =
+    max === red
+      ? (green - blue) / delta + (green < blue ? 6 : 0)
+      : max === green
+        ? (blue - red) / delta + 2
+        : (red - green) / delta + 4;
+
+  return {
+    h: Math.round(hue * 60),
+    s: Math.round(saturation * 100),
+    l: Math.round(lightness * 100),
+  };
+}
+
+function encodeBase64(value: string) {
+  return btoa(unescape(encodeURIComponent(value)));
+}
+
+function decodeBase64(value: string) {
+  try {
+    return decodeURIComponent(escape(atob(value)));
+  } catch {
+    return "Base64 형식이 올바르지 않습니다.";
+  }
+}
+
+async function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function buildMonthGrid(year: number, monthIndex: number) {
   const firstDay = new Date(year, monthIndex, 1);
   const startOffset = firstDay.getDay();
@@ -404,6 +472,26 @@ function DocumentTools({ toolId }: { toolId: string }) {
     );
   }
 
+  if (toolId === "image-pdf-smart-tools") {
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>이미지/PDF 처리</strong><span>외부 도구 임베드</span></div>
+        <div className="external-tool-shell">
+          <iframe
+            title="이미지/PDF 처리"
+            src="https://jjao.kr/ho/single-index.html"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+        <p className="field-help">
+          이미지 압축, 배경 투명화, PDF 텍스트 넣기 기능을 제공하는 페이지를 이 화면 안에 붙였습니다.
+          iframe이 차단되면 새 창에서 열어 주세요: <a href="https://jjao.kr/ho/single-index.html" target="_blank" rel="noreferrer">jjao.kr 도구 열기</a>
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="detail-card workbench-card">
       <div className="workbench-head"><strong>특수문자/이모지</strong><span>검색 후 즉시 복사</span></div>
@@ -425,6 +513,8 @@ function PdfTools({ toolId }: { toolId: string }) {
   const [text, setText] = useState("CONFIDENTIAL");
   const [metadata, setMetadata] = useState({ title: "", author: "", keywords: "" });
   const [previewHtml, setPreviewHtml] = useState("");
+  const [compression, setCompression] = useState(55);
+  const [pageNumber, setPageNumber] = useState({ start: "1", prefix: "", suffix: "", position: "하단 중앙" });
 
   useEffect(() => {
     if (toolId !== "pdf-to-markdown" || files.length === 0) return;
@@ -524,6 +614,83 @@ function PdfTools({ toolId }: { toolId: string }) {
     );
   }
 
+  if (toolId === "pdf-compress-estimator") {
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    const estimated = totalSize * (1 - compression / 100);
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>PDF 압축 예상</strong><span>업로드 전 용량 계획</span></div>
+        <label className="upload-dropzone interactive">
+          <Upload size={24} />
+          <strong>PDF 파일 업로드</strong>
+          <input type="file" accept=".pdf,application/pdf" multiple onChange={(e) => onFileChange(e.target.files)} />
+        </label>
+        <label className="field-block">
+          <span>목표 압축률: {compression}%</span>
+          <input type="range" min="5" max="90" value={compression} onChange={(e) => setCompression(Number(e.target.value))} />
+        </label>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>현재 용량</small><strong>{formatNumber(totalSize / 1024 / 1024)} MB</strong></div>
+          <div className="metric-card"><small>예상 용량</small><strong>{formatNumber(estimated / 1024 / 1024)} MB</strong></div>
+          <div className="metric-card"><small>절감 용량</small><strong>{formatNumber((totalSize - estimated) / 1024 / 1024)} MB</strong></div>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "pdf-page-numbers") {
+    const sample = `${pageNumber.prefix}${pageNumber.start}${pageNumber.suffix}`;
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>PDF 페이지 번호</strong><span>번호 규칙 미리보기</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>시작 번호</span><input value={pageNumber.start} onChange={(e) => setPageNumber((prev) => ({ ...prev, start: e.target.value }))} /></label>
+          <label className="field-block"><span>위치</span><select value={pageNumber.position} onChange={(e) => setPageNumber((prev) => ({ ...prev, position: e.target.value }))}><option>하단 중앙</option><option>하단 오른쪽</option><option>상단 오른쪽</option></select></label>
+          <label className="field-block"><span>접두어</span><input value={pageNumber.prefix} onChange={(e) => setPageNumber((prev) => ({ ...prev, prefix: e.target.value }))} placeholder="Page " /></label>
+          <label className="field-block"><span>접미어</span><input value={pageNumber.suffix} onChange={(e) => setPageNumber((prev) => ({ ...prev, suffix: e.target.value }))} placeholder=" / 12" /></label>
+        </div>
+        <div className="pdf-watermark-preview">
+          <div className="document-sheet"><h3>페이지 번호 미리보기</h3><p>{pageNumber.position}</p><strong>{sample}</strong></div>
+        </div>
+        <div className="tool-actions-row">
+          <button type="button" onClick={() => copyText(`시작 번호 ${pageNumber.start}, 위치 ${pageNumber.position}, 형식 ${sample}`)}><Copy size={16} /> 규칙 복사</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "pdf-protect") {
+    const score = Math.min(100, text.length * 8 + (/[A-Z]/.test(text) ? 12 : 0) + (/\d/.test(text) ? 12 : 0) + (/[^A-Za-z0-9]/.test(text) ? 16 : 0));
+    const label = score >= 70 ? "강함" : score >= 40 ? "보통" : "약함";
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>PDF 암호 보호</strong><span>공유 전 보안 체크</span></div>
+        <label className="field-block"><span>암호 문구</span><input type="password" value={text} onChange={(e) => setText(e.target.value)} placeholder="문서 암호를 입력하세요" /></label>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>강도</small><strong>{label}</strong></div>
+          <div className="metric-card"><small>길이</small><strong>{text.length}자</strong></div>
+          <div className="metric-card"><small>권장</small><strong>12자 이상</strong></div>
+        </div>
+        <textarea className="tool-textarea output" value={`PDF 보호 체크리스트\n- 암호 강도: ${label}\n- 별도 채널로 암호 전달\n- 편집/인쇄 권한 필요 여부 확인`} readOnly />
+      </section>
+    );
+  }
+
+  if (toolId === "pdf-signature") {
+    const stamp = `검토 완료\n${text || "홍길동"}\n${formatDateInput(new Date())}`;
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>PDF 서명 스탬프</strong><span>복사용 승인 블록</span></div>
+        <input className="tool-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="서명자 이름" />
+        <div className="result-panel"><strong>{stamp}</strong></div>
+        <div className="tool-actions-row">
+          <button type="button" onClick={() => copyText(stamp)}><Copy size={16} /> 복사</button>
+          <button type="button" onClick={() => downloadText("signature-stamp.txt", stamp)}><Download size={16} /> TXT 저장</button>
+        </div>
+      </section>
+    );
+  }
+
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
   return (
     <section className="detail-card workbench-card">
@@ -540,6 +707,388 @@ function PdfTools({ toolId }: { toolId: string }) {
       </div>
       <div className="file-list">
         {files.map((file) => <div key={file.name}>{file.name}</div>)}
+      </div>
+    </section>
+  );
+}
+
+function ImageTools({ toolId }: { toolId: string }) {
+  const [values, setValues] = useState({
+    width: "1280",
+    height: "720",
+    targetWidth: "640",
+    size: "2400",
+    quality: "72",
+    ratio: "16:9",
+    hex: "#5B8DEF",
+    label: "Preview",
+  });
+  const setValue = (key: string, value: string) => setValues((prev) => ({ ...prev, [key]: value }));
+  const width = parseNumber(values.width);
+  const height = parseNumber(values.height);
+
+  if (toolId === "image-resizer") {
+    const targetWidth = parseNumber(values.targetWidth);
+    const targetHeight = width > 0 ? Math.round((height / width) * targetWidth) : 0;
+    const scale = width > 0 ? (targetWidth / width) * 100 : 0;
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>이미지 리사이저</strong><span>비율 유지 계산</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>원본 너비</span><input value={values.width} onChange={(e) => setValue("width", e.target.value)} /></label>
+          <label className="field-block"><span>원본 높이</span><input value={values.height} onChange={(e) => setValue("height", e.target.value)} /></label>
+          <label className="field-block"><span>목표 너비</span><input value={values.targetWidth} onChange={(e) => setValue("targetWidth", e.target.value)} /></label>
+        </div>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>결과 크기</small><strong>{targetWidth} x {targetHeight}</strong></div>
+          <div className="metric-card"><small>스케일</small><strong>{formatNumber(scale)}%</strong></div>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "image-compress-estimator") {
+    const size = parseNumber(values.size);
+    const quality = clamp(parseNumber(values.quality), 1, 100);
+    const estimated = size * (0.18 + quality / 125);
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>이미지 압축 예상</strong><span>품질별 용량 추정</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>현재 용량 (KB)</span><input value={values.size} onChange={(e) => setValue("size", e.target.value)} /></label>
+          <label className="field-block"><span>품질: {quality}</span><input type="range" min="10" max="95" value={quality} onChange={(e) => setValue("quality", e.target.value)} /></label>
+        </div>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>예상 용량</small><strong>{formatNumber(estimated, 0)} KB</strong></div>
+          <div className="metric-card"><small>절감률</small><strong>{formatNumber((1 - estimated / Math.max(size, 1)) * 100)}%</strong></div>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "aspect-ratio") {
+    const [ratioWidth, ratioHeight] = values.ratio.split(":").map(Number);
+    const computedHeight = Math.round((width / ratioWidth) * ratioHeight);
+    const computedWidth = Math.round((height / ratioHeight) * ratioWidth);
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>화면 비율 계산기</strong><span>프리셋 비율</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>비율</span><select value={values.ratio} onChange={(e) => setValue("ratio", e.target.value)}><option>16:9</option><option>4:3</option><option>1:1</option><option>3:2</option><option>9:16</option></select></label>
+          <label className="field-block"><span>기준 너비</span><input value={values.width} onChange={(e) => setValue("width", e.target.value)} /></label>
+          <label className="field-block"><span>기준 높이</span><input value={values.height} onChange={(e) => setValue("height", e.target.value)} /></label>
+        </div>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>너비 기준</small><strong>{width} x {computedHeight}</strong></div>
+          <div className="metric-card"><small>높이 기준</small><strong>{computedWidth} x {height}</strong></div>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "color-converter") {
+    const hex = normalizeHex(values.hex);
+    const rgb = hexToRgb(hex);
+    const hsl = rgbToHsl(rgb);
+    const css = `${hex}\nrgb(${rgb.r}, ${rgb.g}, ${rgb.b})\nhsl(${hsl.h} ${hsl.s}% ${hsl.l}%)`;
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>색상 변환기</strong><span>HEX/RGB/HSL</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>HEX</span><input value={values.hex} onChange={(e) => setValue("hex", e.target.value)} /></label>
+          <div className="metric-card" style={{ background: hex }}><small style={{ color: "#fff" }}>미리보기</small><strong style={{ color: "#fff" }}>{hex}</strong></div>
+        </div>
+        <textarea className="tool-textarea output" value={css} readOnly />
+        <div className="tool-actions-row">
+          <button type="button" onClick={() => copyText(css)}><Copy size={16} /> 복사</button>
+        </div>
+      </section>
+    );
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#eef4ff"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#5b8def" font-family="Arial" font-size="32">${values.label} ${width}x${height}</text></svg>`;
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head"><strong>이미지 플레이스홀더</strong><span>SVG 생성</span></div>
+      <div className="form-grid">
+        <label className="field-block"><span>너비</span><input value={values.width} onChange={(e) => setValue("width", e.target.value)} /></label>
+        <label className="field-block"><span>높이</span><input value={values.height} onChange={(e) => setValue("height", e.target.value)} /></label>
+        <label className="field-block wide"><span>라벨</span><input value={values.label} onChange={(e) => setValue("label", e.target.value)} /></label>
+      </div>
+      <textarea className="tool-textarea output" value={svg} readOnly />
+      <div className="tool-actions-row">
+        <button type="button" onClick={() => copyText(svg)}><Copy size={16} /> SVG 복사</button>
+        <button type="button" onClick={() => downloadText("placeholder.svg", svg, "image/svg+xml")}><Download size={16} /> SVG 저장</button>
+      </div>
+    </section>
+  );
+}
+
+function DeveloperTools({ toolId }: { toolId: string }) {
+  const [text, setText] = useState('{"name":"Utility Wiki","tools":42}');
+  const [count, setCount] = useState(5);
+  const [timestamp, setTimestamp] = useState("1713916800");
+  const [hash, setHash] = useState("");
+
+  useEffect(() => {
+    if (toolId !== "hash-generator") return;
+    sha256(text).then(setHash);
+  }, [text, toolId]);
+
+  if (toolId === "json-formatter") {
+    let formatted = "";
+    let compact = "";
+    let error = "";
+    try {
+      const parsed = JSON.parse(text);
+      formatted = JSON.stringify(parsed, null, 2);
+      compact = JSON.stringify(parsed);
+    } catch (err) {
+      error = err instanceof Error ? err.message : "JSON 파싱 오류";
+    }
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>JSON 포매터</strong><span>정렬/압축</span></div>
+        <textarea className="tool-textarea" value={text} onChange={(e) => setText(e.target.value)} />
+        {error ? <p className="field-help">{error}</p> : <textarea className="tool-textarea output" value={formatted} readOnly />}
+        <div className="tool-actions-row">
+          <button type="button" onClick={() => copyText(formatted)} disabled={!formatted}><Copy size={16} /> 정렬 복사</button>
+          <button type="button" onClick={() => copyText(compact)} disabled={!compact}><Copy size={16} /> 압축 복사</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "base64-converter") {
+    const encoded = encodeBase64(text);
+    const decoded = decodeBase64(text);
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>Base64 변환기</strong><span>인코딩/디코딩</span></div>
+        <textarea className="tool-textarea" value={text} onChange={(e) => setText(e.target.value)} />
+        <div className="editor-split">
+          <textarea className="tool-textarea output" value={encoded} readOnly />
+          <textarea className="tool-textarea output" value={decoded} readOnly />
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "url-encoder") {
+    const encoded = encodeURIComponent(text);
+    let decoded = "";
+    try {
+      decoded = decodeURIComponent(text);
+    } catch {
+      decoded = "디코딩할 수 없는 URL 문자열입니다.";
+    }
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>URL 인코더</strong><span>URL 안전 문자열</span></div>
+        <textarea className="tool-textarea" value={text} onChange={(e) => setText(e.target.value)} />
+        <textarea className="tool-textarea output" value={`Encoded:\n${encoded}\n\nDecoded:\n${decoded}`} readOnly />
+      </section>
+    );
+  }
+
+  if (toolId === "uuid-generator") {
+    const uuids = Array.from({ length: count }, () => crypto.randomUUID()).join("\n");
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>UUID 생성기</strong><span>테스트 식별자</span></div>
+        <label className="field-block"><span>생성 개수</span><input type="number" min="1" max="50" value={count} onChange={(e) => setCount(Number(e.target.value))} /></label>
+        <textarea className="tool-textarea output" value={uuids} readOnly />
+        <div className="tool-actions-row">
+          <button type="button" onClick={() => copyText(uuids)}><Copy size={16} /> 복사</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (toolId === "timestamp-converter") {
+    const numeric = parseNumber(timestamp);
+    const millis = timestamp.length <= 10 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>타임스탬프 변환기</strong><span>Unix ↔ ISO</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>Timestamp</span><input value={timestamp} onChange={(e) => setTimestamp(e.target.value)} /></label>
+          <button type="button" onClick={() => setTimestamp(`${Math.floor(Date.now() / 1000)}`)}><RotateCcw size={16} /> 현재 시각</button>
+        </div>
+        <div className="result-panel"><strong>{Number.isFinite(date.getTime()) ? date.toISOString() : "유효하지 않은 값"}</strong></div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head"><strong>해시 생성기</strong><span>SHA-256</span></div>
+      <textarea className="tool-textarea" value={text} onChange={(e) => setText(e.target.value)} />
+      <textarea className="tool-textarea output" value={hash} readOnly />
+      <div className="tool-actions-row">
+        <button type="button" onClick={() => copyText(hash)}><Copy size={16} /> 복사</button>
+      </div>
+    </section>
+  );
+}
+
+type BrokerageDealType = "sale" | "lease" | "monthly";
+type BrokeragePropertyType = "housing" | "officetel" | "other";
+
+function getBrokerageRule(amount: number, dealType: BrokerageDealType, propertyType: BrokeragePropertyType) {
+  if (propertyType === "officetel") {
+    return { rate: dealType === "sale" ? 0.005 : 0.004, cap: null as number | null, label: "오피스텔" };
+  }
+
+  if (propertyType === "other") {
+    return { rate: 0.009, cap: null as number | null, label: "주택 이외" };
+  }
+
+  if (dealType === "sale") {
+    if (amount < 50_000_000) return { rate: 0.006, cap: 250_000, label: "주택 매매 5천만원 미만" };
+    if (amount < 200_000_000) return { rate: 0.005, cap: 800_000, label: "주택 매매 5천만원 이상~2억원 미만" };
+    if (amount < 900_000_000) return { rate: 0.004, cap: null, label: "주택 매매 2억원 이상~9억원 미만" };
+    if (amount < 1_200_000_000) return { rate: 0.005, cap: null, label: "주택 매매 9억원 이상~12억원 미만" };
+    if (amount < 1_500_000_000) return { rate: 0.006, cap: null, label: "주택 매매 12억원 이상~15억원 미만" };
+    return { rate: 0.007, cap: null, label: "주택 매매 15억원 이상" };
+  }
+
+  if (amount < 50_000_000) return { rate: 0.005, cap: 200_000, label: "주택 임대차 5천만원 미만" };
+  if (amount < 100_000_000) return { rate: 0.004, cap: 300_000, label: "주택 임대차 5천만원 이상~1억원 미만" };
+  if (amount < 600_000_000) return { rate: 0.003, cap: null, label: "주택 임대차 1억원 이상~6억원 미만" };
+  if (amount < 1_200_000_000) return { rate: 0.004, cap: null, label: "주택 임대차 6억원 이상~12억원 미만" };
+  if (amount < 1_500_000_000) return { rate: 0.005, cap: null, label: "주택 임대차 12억원 이상~15억원 미만" };
+  return { rate: 0.006, cap: null, label: "주택 임대차 15억원 이상" };
+}
+
+function RealEstateTools({ toolId }: { toolId: string }) {
+  const [values, setValues] = useState({
+    dealPrice: "900000000",
+    deposit: "300000000",
+    monthlyRent: "1000000",
+    vatRate: "10",
+    directRate: "",
+    acquisitionPrice: "900000000",
+    acquisitionRate: "1.0",
+    educationRate: "0.1",
+    agricultureRate: "0",
+    homePrice: "900000000",
+    ltvRate: "60",
+    existingDebt: "0",
+    currentDeposit: "500000000",
+    targetDeposit: "300000000",
+    conversionRate: "5.5",
+  });
+  const [dealType, setDealType] = useState<BrokerageDealType>("sale");
+  const [propertyType, setPropertyType] = useState<BrokeragePropertyType>("housing");
+  const setValue = (key: string, value: string) => setValues((prev) => ({ ...prev, [key]: value }));
+
+  if (toolId === "brokerage-fee") {
+    const salePrice = parseNumber(values.dealPrice);
+    const deposit = parseNumber(values.deposit);
+    const monthlyRent = parseNumber(values.monthlyRent);
+    const monthlyBy100 = deposit + monthlyRent * 100;
+    const monthlyBy70 = deposit + monthlyRent * 70;
+    const transactionAmount = dealType === "sale" ? salePrice : dealType === "lease" ? deposit : monthlyBy100 < 50_000_000 ? monthlyBy70 : monthlyBy100;
+    const rule = getBrokerageRule(transactionAmount, dealType, propertyType);
+    const effectiveRate = values.directRate.trim() ? parseNumber(values.directRate) / 100 : rule.rate;
+    const rawFee = transactionAmount * effectiveRate;
+    const fee = rule.cap ? Math.min(rawFee, rule.cap) : rawFee;
+    const vat = fee * (parseNumber(values.vatRate) / 100);
+    const total = fee + vat;
+
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>중개보수 계산기</strong><span>서울 기준 상한요율</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>계약 유형</span><select value={dealType} onChange={(e) => setDealType(e.target.value as BrokerageDealType)}><option value="sale">매매</option><option value="lease">전세</option><option value="monthly">월세</option></select></label>
+          <label className="field-block"><span>물건 종류</span><select value={propertyType} onChange={(e) => setPropertyType(e.target.value as BrokeragePropertyType)}><option value="housing">주택</option><option value="officetel">오피스텔</option><option value="other">그 외</option></select></label>
+          {dealType === "sale" ? (
+            <label className="field-block wide"><span>매매가</span><input value={values.dealPrice} onChange={(e) => setValue("dealPrice", e.target.value)} /></label>
+          ) : (
+            <>
+              <label className="field-block"><span>보증금/전세금</span><input value={values.deposit} onChange={(e) => setValue("deposit", e.target.value)} /></label>
+              {dealType === "monthly" ? <label className="field-block"><span>월세</span><input value={values.monthlyRent} onChange={(e) => setValue("monthlyRent", e.target.value)} /></label> : null}
+            </>
+          )}
+          <label className="field-block"><span>요율 직접 입력 (%)</span><input value={values.directRate} onChange={(e) => setValue("directRate", e.target.value)} placeholder={formatNumber(rule.rate * 100, 2)} /></label>
+          <label className="field-block"><span>부가세율 (%)</span><input value={values.vatRate} onChange={(e) => setValue("vatRate", e.target.value)} /></label>
+        </div>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>거래금액</small><strong>{formatNumber(transactionAmount, 0)}원</strong></div>
+          <div className="metric-card"><small>적용 요율</small><strong>{formatNumber(effectiveRate * 100, 2)}%</strong></div>
+          <div className="metric-card"><small>중개보수 상한</small><strong>{formatNumber(fee, 0)}원</strong></div>
+          <div className="metric-card"><small>부가세 포함</small><strong>{formatNumber(total, 0)}원</strong></div>
+        </div>
+        <p className="field-help">{rule.label} 기준입니다. 중개보수는 상한 범위 안에서 협의할 수 있습니다.</p>
+      </section>
+    );
+  }
+
+  if (toolId === "acquisition-tax-estimator") {
+    const price = parseNumber(values.acquisitionPrice);
+    const acquisitionTax = price * (parseNumber(values.acquisitionRate) / 100);
+    const educationTax = price * (parseNumber(values.educationRate) / 100);
+    const agricultureTax = price * (parseNumber(values.agricultureRate) / 100);
+    const total = acquisitionTax + educationTax + agricultureTax;
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>취득세 간편 계산</strong><span>요율 직접 조정</span></div>
+        <div className="form-grid">
+          <label className="field-block wide"><span>취득가액</span><input value={values.acquisitionPrice} onChange={(e) => setValue("acquisitionPrice", e.target.value)} /></label>
+          <label className="field-block"><span>취득세율 (%)</span><input value={values.acquisitionRate} onChange={(e) => setValue("acquisitionRate", e.target.value)} /></label>
+          <label className="field-block"><span>지방교육세율 (%)</span><input value={values.educationRate} onChange={(e) => setValue("educationRate", e.target.value)} /></label>
+          <label className="field-block"><span>농특세율 (%)</span><input value={values.agricultureRate} onChange={(e) => setValue("agricultureRate", e.target.value)} /></label>
+        </div>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>취득세</small><strong>{formatNumber(acquisitionTax, 0)}원</strong></div>
+          <div className="metric-card"><small>지방교육세</small><strong>{formatNumber(educationTax, 0)}원</strong></div>
+          <div className="metric-card"><small>농특세</small><strong>{formatNumber(agricultureTax, 0)}원</strong></div>
+          <div className="metric-card"><small>합계</small><strong>{formatNumber(total, 0)}원</strong></div>
+        </div>
+        <p className="field-help">주택 수, 조정대상지역, 면적, 감면 여부에 따라 실제 세액이 달라질 수 있어 요율을 직접 수정할 수 있게 했습니다.</p>
+      </section>
+    );
+  }
+
+  if (toolId === "ltv-calculator") {
+    const homePrice = parseNumber(values.homePrice);
+    const limit = homePrice * (parseNumber(values.ltvRate) / 100);
+    const available = Math.max(limit - parseNumber(values.existingDebt), 0);
+    const equity = Math.max(homePrice - available, 0);
+    return (
+      <section className="detail-card workbench-card">
+        <div className="workbench-head"><strong>LTV 계산기</strong><span>담보대출 한도 추정</span></div>
+        <div className="form-grid">
+          <label className="field-block"><span>주택 가격</span><input value={values.homePrice} onChange={(e) => setValue("homePrice", e.target.value)} /></label>
+          <label className="field-block"><span>LTV (%)</span><input value={values.ltvRate} onChange={(e) => setValue("ltvRate", e.target.value)} /></label>
+          <label className="field-block wide"><span>기존 대출</span><input value={values.existingDebt} onChange={(e) => setValue("existingDebt", e.target.value)} /></label>
+        </div>
+        <div className="metrics-grid">
+          <div className="metric-card"><small>LTV 한도</small><strong>{formatNumber(limit, 0)}원</strong></div>
+          <div className="metric-card"><small>추정 가능액</small><strong>{formatNumber(available, 0)}원</strong></div>
+          <div className="metric-card"><small>필요 자기자본</small><strong>{formatNumber(equity, 0)}원</strong></div>
+        </div>
+      </section>
+    );
+  }
+
+  const currentDeposit = parseNumber(values.currentDeposit);
+  const targetDeposit = parseNumber(values.targetDeposit);
+  const difference = Math.max(currentDeposit - targetDeposit, 0);
+  const monthlyRent = (difference * (parseNumber(values.conversionRate) / 100)) / 12;
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head"><strong>전월세 전환 계산기</strong><span>보증금 차액 환산</span></div>
+      <div className="form-grid">
+        <label className="field-block"><span>기존 보증금</span><input value={values.currentDeposit} onChange={(e) => setValue("currentDeposit", e.target.value)} /></label>
+        <label className="field-block"><span>변경 보증금</span><input value={values.targetDeposit} onChange={(e) => setValue("targetDeposit", e.target.value)} /></label>
+        <label className="field-block wide"><span>연 전환율 (%)</span><input value={values.conversionRate} onChange={(e) => setValue("conversionRate", e.target.value)} /></label>
+      </div>
+      <div className="metrics-grid">
+        <div className="metric-card"><small>보증금 차액</small><strong>{formatNumber(difference, 0)}원</strong></div>
+        <div className="metric-card"><small>월세 환산액</small><strong>{formatNumber(monthlyRent, 0)}원</strong></div>
       </div>
     </section>
   );
@@ -1556,6 +2105,9 @@ export function ToolWorkbench({
 }) {
   if (sectionId === "documents") return <DocumentTools toolId={toolId} />;
   if (sectionId === "pdf") return <PdfTools toolId={toolId} />;
+  if (sectionId === "images") return <ImageTools toolId={toolId} />;
+  if (sectionId === "developer-tools") return <DeveloperTools toolId={toolId} />;
+  if (sectionId === "real-estate") return <RealEstateTools toolId={toolId} />;
   if (sectionId === "business-calculators") return <BusinessCalculators toolId={toolId} />;
   return <BusinessDocuments toolId={toolId} toolName={toolName} />;
 }

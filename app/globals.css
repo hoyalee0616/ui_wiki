@@ -161,71 +161,126 @@ button {
 
 .logo-mark {
   position: relative;
-  width: 46px;
-  height: 38px;
+  width: 48px;
+  height: 42px;
+  display: block;
+  filter: drop-shadow(0 4px 0 rgba(111, 86, 72, 0.08));
 }
 
-.logo-mark .ear,
-.mascot-body .ear {
+.logo-mark .ear {
   position: absolute;
-  top: -6px;
-  width: 14px;
-  height: 14px;
-  background: #fff8f3;
-  border: 2px solid #c9b3a6;
-  border-bottom: 0;
+  top: 0;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  background: #fff7f2;
+  border: 2px solid #705648;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.logo-mark .ear span {
+  width: 7px;
+  height: 7px;
+  background: #ffdcd5;
   border-radius: 50%;
 }
 
-.logo-mark .ear.left,
-.mascot-body .ear.left {
-  left: 6px;
+.logo-mark .ear.left {
+  left: 7px;
 }
 
-.logo-mark .ear.right,
-.mascot-body .ear.right {
-  right: 6px;
+.logo-mark .ear.right {
+  right: 7px;
 }
 
-.logo-mark .face,
-.mascot-body .face {
+.logo-mark .face {
   position: absolute;
-  inset: 0;
-  background: #fffdfa;
-  border: 2px solid #c9b3a6;
-  border-radius: 50% 50% 48% 48%;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: 34px;
+  background: linear-gradient(180deg, #ffffff 0%, #fffdfa 72%, #fff8f4 100%);
+  border: 2px solid #705648;
+  border-radius: 48% 48% 43% 43%;
+  z-index: 1;
 }
 
-.logo-mark .eye,
-.mascot-body .eye {
+.logo-mark .face::after {
   position: absolute;
-  top: 15px;
+  right: 9px;
+  bottom: -6px;
+  left: 9px;
+  height: 5px;
+  background: rgba(111, 86, 72, 0.13);
+  border-radius: 999px;
+  content: "";
+}
+
+.logo-mark .eye {
+  position: absolute;
+  top: 14px;
   width: 4px;
-  height: 6px;
-  background: #473b33;
+  height: 5px;
+  background: #3f3028;
   border-radius: 999px;
 }
 
-.logo-mark .eye.left,
-.mascot-body .eye.left {
-  left: 14px;
+.logo-mark .eye.left {
+  left: 13px;
 }
 
-.logo-mark .eye.right,
-.mascot-body .eye.right {
-  right: 14px;
+.logo-mark .eye.right {
+  right: 13px;
 }
 
-.logo-mark .mouth,
-.mascot-body .mouth {
+.logo-mark .blush {
+  position: absolute;
+  top: 19px;
+  width: 8px;
+  height: 5px;
+  background: #ffd8d2;
+  border-radius: 999px;
+  opacity: 0.82;
+}
+
+.logo-mark .blush.left {
+  left: 7px;
+}
+
+.logo-mark .blush.right {
+  right: 7px;
+}
+
+.logo-mark .nose {
   position: absolute;
   left: 50%;
-  top: 19px;
-  width: 12px;
-  height: 8px;
-  border-bottom: 2px solid #473b33;
-  border-radius: 0 0 12px 12px;
+  top: 18px;
+  width: 5px;
+  height: 3px;
+  background: #3f3028;
+  border-radius: 50% 50% 55% 55%;
   transform: translateX(-50%);
+}
+
+.logo-mark .mouth {
+  position: absolute;
+  top: 21px;
+  width: 7px;
+  height: 5px;
+  border-bottom: 2px solid #3f3028;
+  border-radius: 0 0 10px 10px;
+}
+
+.logo-mark .mouth.left {
+  left: 18px;
+  transform: rotate(-16deg);
+}
+
+.logo-mark .mouth.right {
+  right: 18px;
+  transform: rotate(16deg);
 }
 
 .search-shell {
@@ -500,17 +555,17 @@ button {
 
 .mascot-hero {
   position: relative;
-  width: 250px;
-  min-width: 250px;
-  height: 190px;
+  width: 260px;
+  min-width: 260px;
+  height: 202px;
 }
 
 .speech-bubble {
   position: absolute;
-  top: 6px;
-  right: 14px;
-  width: 56px;
-  height: 56px;
+  top: 0;
+  right: 12px;
+  width: 62px;
+  height: 62px;
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
@@ -520,70 +575,200 @@ button {
   box-shadow: var(--shadow-sm);
 }
 
+.speech-bubble::after {
+  position: absolute;
+  left: 8px;
+  bottom: -10px;
+  width: 16px;
+  height: 16px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  transform: rotate(25deg);
+  content: "";
+}
+
 .mascot-body {
   position: absolute;
   right: 12px;
   bottom: 0;
-  width: 160px;
-  height: 146px;
-  background: #fffdfa;
-  border: 2px solid #d8c2b6;
-  border-radius: 50% 50% 42% 42%;
+  width: 174px;
+  height: 154px;
+  background: linear-gradient(180deg, #ffffff 0%, #fffefd 68%, #fff7f1 100%);
+  border: 2px solid #705648;
+  border-radius: 48% 48% 40% 40%;
+  box-shadow: 0 8px 0 rgba(111, 86, 72, 0.1);
 }
 
 .mascot-body .arm {
   position: absolute;
-  top: 50px;
+  top: 58px;
   width: 24px;
-  height: 60px;
-  background: #fffdfa;
-  border: 2px solid #d8c2b6;
+  height: 68px;
+  background: #fffefd;
+  border: 2px solid #705648;
   border-radius: 20px;
+  z-index: -1;
 }
 
 .mascot-body .arm.left {
-  left: -10px;
-  transform: rotate(24deg);
+  left: -14px;
+  transform: rotate(19deg);
 }
 
 .mascot-body .arm.right {
-  right: -8px;
-  top: 25px;
-  transform: rotate(-12deg);
+  right: -12px;
+  top: 28px;
+  height: 74px;
+  transform: rotate(-13deg);
 }
 
 .mascot-body .paw {
   position: absolute;
-  right: -8px;
-  top: 12px;
-  width: 28px;
-  height: 28px;
-  border: 2px solid #d8c2b6;
+  right: -15px;
+  top: 16px;
+  width: 31px;
+  height: 31px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  padding-top: 4px;
+  border: 2px solid #705648;
   border-radius: 999px;
-  background: #fffdfa;
+  background: #fffefd;
+  transform: rotate(18deg);
+}
+
+.mascot-body .paw span {
+  width: 2px;
+  height: 8px;
+  background: #705648;
+  border-radius: 999px;
+}
+
+.mascot-body .ear {
+  position: absolute;
+  top: -9px;
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  background: #fff7f2;
+  border: 2px solid #705648;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.mascot-body .ear span {
+  width: 14px;
+  height: 14px;
+  background: #ffdcd5;
+  border-radius: 50%;
+}
+
+.mascot-body .ear.left {
+  left: 27px;
+}
+
+.mascot-body .ear.right {
+  right: 27px;
 }
 
 .mascot-body .face {
-  inset: 22px 20px auto;
+  position: absolute;
+  inset: 25px 22px auto;
   height: 92px;
+  z-index: 1;
+}
+
+.mascot-body .eye {
+  position: absolute;
+  top: 42px;
+  width: 8px;
+  height: 10px;
+  background: #3f3028;
+  border-radius: 999px;
+}
+
+.mascot-body .eye::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 2px;
+  height: 2px;
+  background: #ffffff;
+  border-radius: 50%;
+  content: "";
+}
+
+.mascot-body .eye.left {
+  left: 39px;
+}
+
+.mascot-body .eye.right {
+  right: 39px;
+}
+
+.mascot-body .nose {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  width: 6px;
+  height: 4px;
+  background: #3f3028;
+  border-radius: 50% 50% 55% 55%;
+  transform: translateX(-50%);
+}
+
+.mascot-body .mouth {
+  position: absolute;
+  top: 56px;
+  width: 11px;
+  height: 8px;
+  border-bottom: 2px solid #3f3028;
+  border-radius: 0 0 14px 14px;
+}
+
+.mascot-body .mouth.left {
+  left: 52px;
+  transform: rotate(-15deg);
+}
+
+.mascot-body .mouth.right {
+  right: 52px;
+  transform: rotate(15deg);
+}
+
+.mascot-body .tongue {
+  position: absolute;
+  top: 63px;
+  left: 50%;
+  width: 9px;
+  height: 6px;
+  background: #ff9a91;
+  border: 2px solid #3f3028;
+  border-top: 0;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
 }
 
 .mascot-body .blush {
   position: absolute;
-  top: 38px;
-  width: 16px;
-  height: 10px;
-  background: #ffd9d9;
+  top: 55px;
+  width: 20px;
+  height: 12px;
+  background: #ffd8d2;
   border-radius: 999px;
-  opacity: 0.7;
+  opacity: 0.78;
 }
 
 .mascot-body .blush.left {
-  left: 18px;
+  left: 13px;
 }
 
 .mascot-body .blush.right {
-  right: 18px;
+  right: 13px;
 }
 
 .content-section {
@@ -1791,6 +1976,22 @@ button {
   position: relative;
 }
 
+.external-tool-shell {
+  min-height: 760px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-muted);
+}
+
+.external-tool-shell iframe {
+  width: 100%;
+  height: 760px;
+  display: block;
+  border: 0;
+  background: #ffffff;
+}
+
 .watermark-layer {
   position: absolute;
   inset: 20px;
@@ -2265,20 +2466,11 @@ button {
   }
 
   .mascot-hero {
-    width: 170px;
-    min-width: auto;
-    height: 136px;
     margin-left: auto;
-  }
-
-  .mascot-body {
-    width: 120px;
-    height: 110px;
-  }
-
-  .mascot-body .face {
-    inset: 16px 14px auto;
-    height: 68px;
+    margin-bottom: -20px;
+    margin-right: -10px;
+    transform: none;
+    transform-origin: bottom right;
   }
 
   .tool-grid {
@@ -2355,6 +2547,12 @@ button {
 
   .field-row {
     grid-template-columns: 1fr 84px;
+  }
+
+  .external-tool-shell,
+  .external-tool-shell iframe {
+    min-height: 640px;
+    height: 640px;
   }
 
   .menu-category-head {
