@@ -20,7 +20,7 @@ export function Sidebar() {
               const isActive =
                 item.href === "/"
                   ? pathname === "/"
-                  : pathname === item.href || pathname.startsWith("/menu") || pathname.startsWith("/tools/");
+                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
               return (
                 <Link key={item.label} href={item.href} className={`sidebar-link ${isActive ? "active" : ""}`}>
@@ -34,10 +34,11 @@ export function Sidebar() {
 
         {toolSections.map((section) => {
           const Icon = section.icon;
+          const isSectionActive = sectionMap[section.id].some((tool) => tool.id === currentToolId);
 
           return (
             <section key={section.id} className="sidebar-block">
-              <Link href={section.href} className="sidebar-section-link">
+              <Link href={section.href} className={`sidebar-section-link ${isSectionActive ? "active" : ""}`}>
                 <span className={`mini-icon ${section.accent}`}>
                   <Icon size={15} />
                 </span>
@@ -49,9 +50,13 @@ export function Sidebar() {
               <div className="sidebar-tool-list">
                 {sectionMap[section.id].map((tool) => {
                   const isActive = currentToolId === tool.id;
+                  const ToolIcon = tool.icon;
 
                   return (
                     <Link key={tool.id} href={tool.slug} className={`sidebar-tool-link ${isActive ? "active" : ""}`}>
+                      <span className={`sidebar-tool-mini ${tool.accent}`}>
+                        <ToolIcon size={14} />
+                      </span>
                       <span>{tool.name}</span>
                     </Link>
                   );

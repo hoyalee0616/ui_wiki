@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { sectionMap, toolSections } from "@/data/tools";
 
 export function MobileMenu({ onClose }: { onClose?: () => void }) {
+  const pathname = usePathname();
+  const currentToolId = pathname.startsWith("/tools/") ? pathname.split("/").pop() : null;
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(
     Object.fromEntries(toolSections.map((section) => [section.id, true])),
   );
@@ -24,12 +27,14 @@ export function MobileMenu({ onClose }: { onClose?: () => void }) {
 
       {toolSections.map((section) => {
         const isOpen = openSections[section.id];
+        const isSectionActive = sectionMap[section.id].some((tool) => tool.id === currentToolId);
+        const SectionIcon = section.icon;
 
         return (
           <section key={section.id} className="mobile-category">
             <button
               type="button"
-              className="mobile-category-title"
+              className={`mobile-category-title ${isSectionActive ? "active" : ""}`}
               onClick={() =>
                 setOpenSections((prev) => ({
                   ...prev,
@@ -38,9 +43,14 @@ export function MobileMenu({ onClose }: { onClose?: () => void }) {
               }
               aria-expanded={isOpen}
             >
-              <div>
-                <h3>{section.label}</h3>
-                <small>{section.description}</small>
+              <div className="mobile-category-title-copy">
+                <span className={`mini-icon ${section.accent}`}>
+                  <SectionIcon size={16} />
+                </span>
+                <div>
+                  <h3>{section.label}</h3>
+                  <small>{section.description}</small>
+                </div>
               </div>
               <ChevronDown size={18} className={isOpen ? "is-open" : ""} />
             </button>
@@ -48,9 +58,10 @@ export function MobileMenu({ onClose }: { onClose?: () => void }) {
               <div className="mobile-category-list">
                 {sectionMap[section.id].map((tool) => {
                   const Icon = tool.icon;
+                  const isActive = currentToolId === tool.id;
 
                   return (
-                    <Link key={tool.id} href={tool.slug} onClick={onClose}>
+                    <Link key={tool.id} href={tool.slug} className={isActive ? "active" : ""} onClick={onClose}>
                       <span className={`mini-icon ${tool.accent}`}>
                         <Icon size={16} />
                       </span>

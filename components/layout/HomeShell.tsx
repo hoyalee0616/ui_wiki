@@ -4,8 +4,6 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowRight, Lock, ShieldCheck, Sparkles } from "lucide-react";
 import { HeroMascot } from "@/components/brand/Logo";
-import { CompactToolRow } from "@/components/cards/CompactToolRow";
-import { SectionOverviewCard } from "@/components/cards/SectionOverviewCard";
 import { SectionDirectoryCard } from "@/components/cards/SectionDirectoryCard";
 import { SearchBar } from "@/components/common/SearchBar";
 import { SectionTitle } from "@/components/common/SectionTitle";
@@ -81,25 +79,6 @@ export function HomeShell() {
               {highlightedSections.map((section) => (
                 <SectionDirectoryCard key={section.id} section={section} tools={sectionMap[section.id]} />
               ))}
-            </div>
-          </section>
-
-          <section className="content-section two-column-section">
-            <div>
-              <SectionTitle title="추천 워크플로우" />
-              <div className="section-overview-list">
-                {highlightedSections.map((section) => (
-                  <SectionOverviewCard key={section.id} section={section} tools={section.tools} />
-                ))}
-              </div>
-            </div>
-            <div>
-              <SectionTitle title="방금 많이 찾은 도구" />
-              <div className="compact-tool-panel">
-                {popularTools.slice(0, 8).map((tool) => (
-                  <CompactToolRow key={tool.id} tool={tool} />
-                ))}
-              </div>
             </div>
           </section>
 

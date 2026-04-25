@@ -3,7 +3,6 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { CompactToolRow } from "@/components/cards/CompactToolRow";
 import { SearchBar } from "@/components/common/SearchBar";
-import { SectionOverviewCard } from "@/components/cards/SectionOverviewCard";
 import { SectionDirectoryCard } from "@/components/cards/SectionDirectoryCard";
 import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
@@ -90,14 +89,6 @@ export default async function MenuPage({
               ) : (
                 <div className="menu-section-grid">
                   <SectionDirectoryCard section={section} tools={tools} />
-                  <div className="menu-side-panel">
-                    <SectionOverviewCard section={section} tools={tools.slice(0, 4)} />
-                    <div className="compact-tool-panel">
-                      {tools.slice(0, 6).map((tool) => (
-                        <CompactToolRow key={tool.id} tool={tool} />
-                      ))}
-                    </div>
-                  </div>
                 </div>
               )}
             </section>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Copy, Download, Plus, Printer, RotateCcw, Upload } from "lucide-react";
 import type { ToolSectionId } from "@/data/tools";
 
@@ -34,42 +34,272 @@ async function copyText(text: string) {
 
 function downloadText(filename: string, content: string, mimeType = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type: mimeType });
+  downloadBlob(filename, blob);
+}
+
+function downloadBytes(filename: string, content: Uint8Array, mimeType = "application/octet-stream") {
+  const bytes = new Uint8Array(content);
+  const blob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], { type: mimeType });
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+    link.remove();
+  }, 1000);
+}
+
+const markdownExample = [
+  "# Markdown Preview",
+  "",
+  "## 기본 문법",
+  "",
+  "**굵은 글씨**, *기울임*, ~~취소선~~, `인라인 코드`",
+  "",
+  "### 리스트",
+  "",
+  "- 항목 1",
+  "- 항목 2",
+  "  - 중첩 항목",
+  "- 항목 3",
+  "",
+  "1. 첫 번째",
+  "2. 두 번째",
+  "3. 세 번째",
+  "",
+  "### 링크와 이미지",
+  "",
+  "[Gomdol Tool](https://example.com)",
+  "",
+  "### 인용",
+  "",
+  "> 인용문입니다.",
+  "> 여러 줄도 가능합니다.",
+  "",
+  "### 코드 블록",
+  "",
+  "```javascript",
+  "function hello(name) {",
+  "  console.log(`Hello, ${name}!`);",
+  "  return true;",
+  "}",
+  "```",
+  "",
+  "### 테이블 (GFM)",
+  "",
+  "| 이름 | 나이 | 직업 |",
+  "| --- | ---: | --- |",
+  "| 홍길동 | 25 | 개발자 |",
+  "| 김철수 | 30 | 디자이너 |",
+  "",
+  "### 체크박스 (GFM)",
+  "",
+  "- [x] 완료된 항목",
+  "- [ ] 미완료 항목",
+  "- [ ] 또 다른 항목",
+  "",
+  "---",
+  "",
+  "수평선 아래에 있는 내용입니다.",
+].join("\n");
+
+type MarkdownViewMode = "split" | "editor" | "preview";
+
+function TaxPreviewScaleFrame({ children }: { children: ReactNode }) {
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const paperRef = useRef<HTMLDivElement | null>(null);
+  const [frame, setFrame] = useState({ scale: 1, height: 0 });
+
+  useEffect(() => {
+    const updateFrame = () => {
+      const frameElement = frameRef.current;
+      const paperElement = paperRef.current;
+      if (!frameElement || !paperElement) return;
+
+      const availableWidth = frameElement.clientWidth;
+      const paperWidth = paperElement.offsetWidth || 860;
+      const paperHeight = paperElement.scrollHeight || 1;
+      const scale = Math.min(1, availableWidth / paperWidth);
+      setFrame({ scale, height: Math.ceil(paperHeight * scale) });
+    };
+
+    updateFrame();
+    const observer = new ResizeObserver(updateFrame);
+    if (frameRef.current) observer.observe(frameRef.current);
+    if (paperRef.current) observer.observe(paperRef.current);
+    window.addEventListener("resize", updateFrame);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateFrame);
+    };
+  }, [children]);
+
+  return (
+    <div ref={frameRef} className="tax-preview-frame" style={{ height: frame.height ? `${frame.height}px` : undefined }}>
+      <div ref={paperRef} className="tax-preview-paper" style={{ transform: `scale(${frame.scale})` }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderInlineMarkdown(value: string) {
+  return escapeHtml(value)
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" />')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/~~([^~]+)~~/g, "<del>$1</del>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
 }
 
 function renderMarkdown(markdown: string) {
-  const inline = (value: string) =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`(.*?)`/g, "<code>$1</code>");
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const html: string[] = [];
+  let index = 0;
+  let inCode = false;
+  let codeLang = "";
+  let codeLines: string[] = [];
 
-  return markdown
-    .split("\n\n")
-    .map((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("### ")) return `<h3>${inline(trimmed.slice(4))}</h3>`;
-      if (trimmed.startsWith("## ")) return `<h2>${inline(trimmed.slice(3))}</h2>`;
-      if (trimmed.startsWith("# ")) return `<h1>${inline(trimmed.slice(2))}</h1>`;
-      if (trimmed.split("\n").every((line) => line.trim().startsWith("- "))) {
-        const items = trimmed
-          .split("\n")
-          .map((line) => `<li>${inline(line.trim().slice(2))}</li>`)
-          .join("");
-        return `<ul>${items}</ul>`;
+  const flushCode = () => {
+    html.push(`<pre><code data-language="${escapeHtml(codeLang)}">${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    inCode = false;
+    codeLang = "";
+    codeLines = [];
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      if (inCode) {
+        flushCode();
+      } else {
+        inCode = true;
+        codeLang = trimmed.slice(3).trim();
       }
-      return `<p>${inline(trimmed).replace(/\n/g, "<br />")}</p>`;
-    })
-    .join("");
+      index += 1;
+      continue;
+    }
+
+    if (inCode) {
+      codeLines.push(line);
+      index += 1;
+      continue;
+    }
+
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (/^---+$|^\*\*\*+$/.test(trimmed)) {
+      html.push("<hr />");
+      index += 1;
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1].length;
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith(">")) {
+        quoteLines.push(lines[index].trim().replace(/^>\s?/, ""));
+        index += 1;
+      }
+      html.push(`<blockquote>${quoteLines.map((entry) => renderInlineMarkdown(entry)).join("<br />")}</blockquote>`);
+      continue;
+    }
+
+    if (trimmed.includes("|") && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1])) {
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        rows.push(
+          lines[index]
+            .trim()
+            .replace(/^\||\|$/g, "")
+            .split("|")
+            .map((cell) => cell.trim()),
+        );
+        index += 1;
+      }
+      const [head, , ...bodyRows] = rows;
+      html.push(
+        `<table><thead><tr>${head.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${bodyRows
+          .map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`)
+          .join("")}</tbody></table>`,
+      );
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed) || /^[-*]\s+\[[ xX]\]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+        const item = lines[index].trim().replace(/^[-*]\s+/, "");
+        const checkbox = /^\[([ xX])\]\s+(.+)$/.exec(item);
+        items.push(
+          checkbox
+            ? `<li class="task-list-item"><input type="checkbox" disabled ${checkbox[1].toLowerCase() === "x" ? "checked" : ""} /> ${renderInlineMarkdown(checkbox[2])}</li>`
+            : `<li>${renderInlineMarkdown(item)}</li>`,
+        );
+        index += 1;
+      }
+      html.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(`<li>${renderInlineMarkdown(lines[index].trim().replace(/^\d+\.\s+/, ""))}</li>`);
+        index += 1;
+      }
+      html.push(`<ol>${items.join("")}</ol>`);
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !/^(#{1,6})\s+/.test(lines[index].trim()) &&
+      !lines[index].trim().startsWith(">") &&
+      !/^[-*]\s+/.test(lines[index].trim()) &&
+      !/^\d+\.\s+/.test(lines[index].trim()) &&
+      !lines[index].trim().startsWith("```")
+    ) {
+      paragraphLines.push(lines[index].trim());
+      index += 1;
+    }
+    html.push(`<p>${paragraphLines.map((entry) => renderInlineMarkdown(entry)).join("<br />")}</p>`);
+  }
+
+  if (inCode) flushCode();
+  return html.join("");
 }
 
 function slugify(text: string) {
@@ -146,6 +376,202 @@ function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
     s: Math.round(saturation * 100),
     l: Math.round(lightness * 100),
   };
+}
+
+function countMarkdownWords(value: string) {
+  const normalized = value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`~\-[\]()|]/g, " ")
+    .trim();
+  return normalized ? normalized.split(/\s+/).length : 0;
+}
+
+function markdownToPlainText(value: string) {
+  return value
+    .replace(/```[\s\S]*?```/g, (match) => match.replace(/```[a-z]*\n?/i, "").replace(/```$/, ""))
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/^[-*]\s+\[[ xX]\]\s+/gm, "- ")
+    .replace(/^[-*]\s+/gm, "- ")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/[*_~`|]/g, "")
+    .trim();
+}
+
+function toPdfHex(value: string) {
+  return Array.from(value)
+    .map((char) => {
+      const code = char.codePointAt(0) ?? 32;
+      return code <= 0xffff ? code.toString(16).padStart(4, "0") : "0020";
+    })
+    .join("")
+    .toUpperCase();
+}
+
+function escapePdf(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function buildSimplePdf(title: string, markdown: string) {
+  const plainLines = [title, "", ...markdownToPlainText(markdown).split("\n")]
+    .map((line) => line.trimEnd())
+    .filter((line, index, lines) => line || lines[index - 1]);
+  const pages = Array.from({ length: Math.max(1, Math.ceil(plainLines.length / 34)) }, (_, pageIndex) =>
+    plainLines.slice(pageIndex * 34, pageIndex * 34 + 34),
+  );
+  const objects: string[] = [];
+  const addObject = (body: string) => {
+    objects.push(body);
+    return objects.length;
+  };
+
+  const catalogId = addObject("<< /Type /Catalog /Pages 2 0 R >>");
+  const pagesId = addObject("");
+  const fontId = addObject("<< /Type /Font /Subtype /Type0 /BaseFont /HYGoThic-Medium /Encoding /UniKS-UCS2-H /DescendantFonts [4 0 R] >>");
+  addObject("<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HYGoThic-Medium /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> /FontDescriptor 5 0 R >>");
+  addObject("<< /Type /FontDescriptor /FontName /HYGoThic-Medium /Flags 4 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 80 >>");
+
+  const pageIds: number[] = [];
+  pages.forEach((lines) => {
+    const streamLines = [
+      "BT",
+      `/F1 18 Tf 50 790 Td <${toPdfHex(lines[0] || title)}> Tj`,
+      "/F1 11 Tf 0 -30 Td",
+      ...lines.slice(1).map((line) => `0 -18 Td <${toPdfHex(line || " ")}> Tj`),
+      "ET",
+    ];
+    const stream = streamLines.join("\n");
+    const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    const pageId = addObject(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    pageIds.push(pageId);
+  });
+  objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
+
+  const encoder = new TextEncoder();
+  let pdf = "%PDF-1.4\n%âãÏÓ\n";
+  const offsets = [0];
+  objects.forEach((body, index) => {
+    offsets.push(encoder.encode(pdf).length);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefOffset = encoder.encode(pdf).length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R /Info << /Title (${escapePdf(title)}) >> >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return encoder.encode(pdf);
+}
+
+function downloadMarkdownPdf(title: string, markdown: string) {
+  downloadBytes("markdown-preview.pdf", buildSimplePdf(title, markdown), "application/pdf");
+}
+
+function dataUrlToBytes(dataUrl: string) {
+  const base64 = dataUrl.split(",")[1] ?? "";
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function buildImagePdf(pages: Uint8Array[]) {
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const objects: Uint8Array[] = [];
+  const addTextObject = (body: string) => {
+    objects.push(encoder.encode(body));
+    return objects.length;
+  };
+  const addStreamObject = (dictionary: string, stream: Uint8Array) => {
+    const head = encoder.encode(`${dictionary}\nstream\n`);
+    const tail = encoder.encode("\nendstream");
+    const objectBytes = new Uint8Array(head.length + stream.length + tail.length);
+    objectBytes.set(head, 0);
+    objectBytes.set(stream, head.length);
+    objectBytes.set(tail, head.length + stream.length);
+    objects.push(objectBytes);
+    return objects.length;
+  };
+
+  const catalogId = addTextObject("<< /Type /Catalog /Pages 2 0 R >>");
+  const pagesId = addTextObject("");
+  const pageIds: number[] = [];
+
+  pages.forEach((imageBytes) => {
+    const imageId = addStreamObject(
+      `<< /Type /XObject /Subtype /Image /Width 1240 /Height 1754 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>`,
+      imageBytes,
+    );
+    const content = "q\n595 0 0 842 0 0 cm\n/Im1 Do\nQ";
+    const contentId = addStreamObject(`<< /Length ${encoder.encode(content).length} >>`, encoder.encode(content));
+    const pageId = addTextObject(
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im1 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
+    );
+    pageIds.push(pageId);
+  });
+
+  objects[pagesId - 1] = encoder.encode(
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`,
+  );
+
+  chunks.push(encoder.encode("%PDF-1.4\n%âãÏÓ\n"));
+  const offsets = [0];
+  let length = chunks[0].length;
+  objects.forEach((body, index) => {
+    offsets.push(length);
+    const head = encoder.encode(`${index + 1} 0 obj\n`);
+    const tail = encoder.encode("\nendobj\n");
+    chunks.push(head, body, tail);
+    length += head.length + body.length + tail.length;
+  });
+
+  const xrefOffset = length;
+  const xref = [
+    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`,
+    offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join(""),
+    `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
+  ].join("");
+  chunks.push(encoder.encode(xref));
+
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return result;
+}
+
+async function renderHtmlPageToJpeg(html: string) {
+  const width = 1240;
+  const height = 1754;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <foreignObject width="100%" height="100%">
+        <div xmlns="http://www.w3.org/1999/xhtml">${html}</div>
+      </foreignObject>
+    </svg>
+  `;
+  const image = new Image();
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("PDF 이미지를 만들 수 없습니다."));
+      image.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("PDF 캔버스를 만들 수 없습니다.");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+    return dataUrlToBytes(canvas.toDataURL("image/jpeg", 0.95));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function encodeBase64(value: string) {
@@ -348,10 +774,13 @@ const converterSets = {
 type ConverterType = keyof typeof converterSets;
 
 function DocumentTools({ toolId }: { toolId: string }) {
-  const [text, setText] = useState("# 제목\n\n- 항목 1\n- 항목 2");
+  const [text, setText] = useState(markdownExample);
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
   const [paragraphs, setParagraphs] = useState(3);
+  const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>("split");
+  const markdownTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const markdownFileInputRef = useRef<HTMLInputElement | null>(null);
   const keyword = text.trim().toLowerCase();
   const filteredEmoji = emojiLibrary.filter(
     (item) =>
@@ -370,20 +799,101 @@ function DocumentTools({ toolId }: { toolId: string }) {
     ...body.map((line) => `| ${line.join(" | ")} |`),
   ].join("\n");
   const generated = generateDummyText(paragraphs);
+  const markdownHtml = renderMarkdown(text);
+  const markdownLines = text.split("\n");
+  const markdownStats = `${formatNumber(text.length, 0)}자 · ${formatNumber(countMarkdownWords(text), 0)} 단어`;
+
+  const insertMarkdownSnippet = (prefix: string, suffix = "", placeholder = "") => {
+    const textarea = markdownTextareaRef.current;
+    if (!textarea) {
+      setText((value) => `${value}${value ? "\n" : ""}${prefix}${placeholder}${suffix}`);
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = text.slice(start, end) || placeholder;
+    const nextText = `${text.slice(0, start)}${prefix}${selected}${suffix}${text.slice(end)}`;
+    setText(nextText);
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    });
+  };
+
+  const importMarkdownFile = async (fileList: FileList | null) => {
+    const file = fileList?.[0];
+    if (!file) return;
+    setText(await file.text());
+    if (markdownFileInputRef.current) markdownFileInputRef.current.value = "";
+  };
 
   if (toolId === "markdown-preview") {
     return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>마크다운 미리보기</strong><span>실시간 렌더링</span></div>
-        <div className="editor-split">
-          <div className="editor-pane">
-            <label className="field-label">마크다운 입력</label>
-            <textarea className="tool-textarea" value={text} onChange={(e) => setText(e.target.value)} />
+      <section className="detail-card workbench-card markdown-workbench">
+        <div className="markdown-toolbar">
+          <div className="markdown-actions">
+            <button type="button" onClick={() => setText(markdownExample)}><Plus size={16} /> 예제 로드</button>
+            <button type="button" onClick={() => markdownFileInputRef.current?.click()}><Upload size={16} /> 가져오기</button>
+            <button type="button" onClick={() => downloadText("markdown-preview.md", text, "text/markdown;charset=utf-8")}><Download size={16} /> MD 다운로드</button>
+            <button type="button" onClick={() => downloadMarkdownPdf("Markdown Preview", text)}><Download size={16} /> PDF 다운로드</button>
+            <button type="button" onClick={() => setText("")}><RotateCcw size={16} /> 초기화</button>
+            <input
+              ref={markdownFileInputRef}
+              type="file"
+              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              onChange={(event) => importMarkdownFile(event.target.files)}
+            />
           </div>
-          <div className="editor-pane preview">
-            <label className="field-label">미리보기</label>
-            <div className="preview-pane" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+          <div className="markdown-toolbar-right">
+            <div className="markdown-mode-toggle" aria-label="마크다운 보기 모드">
+              {(["split", "editor", "preview"] as MarkdownViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={markdownMode === mode ? "is-active" : ""}
+                  onClick={() => setMarkdownMode(mode)}
+                >
+                  {mode === "split" ? "분할" : mode === "editor" ? "에디터" : "미리보기"}
+                </button>
+              ))}
+            </div>
+            <span>{markdownStats}</span>
           </div>
+        </div>
+
+        <div className={`markdown-editor-layout mode-${markdownMode}`}>
+          <div className="markdown-editor-panel">
+            <div className="markdown-panel-label">마크다운 에디터</div>
+            <div className="markdown-code-editor">
+              <div className="markdown-line-numbers" aria-hidden="true">
+                {markdownLines.map((_, index) => <span key={index}>{index + 1}</span>)}
+              </div>
+              <textarea
+                ref={markdownTextareaRef}
+                value={text}
+                spellCheck={false}
+                onChange={(event) => setText(event.target.value)}
+                aria-label="마크다운 에디터"
+              />
+            </div>
+          </div>
+
+          <div className="markdown-preview-panel">
+            <div className="markdown-panel-label">미리보기</div>
+            <div className="markdown-preview-pane" dangerouslySetInnerHTML={{ __html: markdownHtml }} />
+          </div>
+        </div>
+
+        <div className="markdown-quickbar" aria-label="빠른 마크다운 삽입">
+          <button type="button" onClick={() => insertMarkdownSnippet("# ", "", "제목")}># 제목 <span>H1</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("## ", "", "제목")}>## 제목 <span>H2</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("**", "**", "굵게")}>**굵게** <span>Bold</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("*", "*", "기울임")}>*기울임* <span>Italic</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("~~", "~~", "취소")}>~~취소~~ <span>Strike</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("`", "`", "코드")}>`코드` <span>Code</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("- ", "", "항목")}>- 항목 <span>List</span></button>
+          <button type="button" onClick={() => insertMarkdownSnippet("> ", "", "인용")}> &gt; 인용 <span>Quote</span></button>
         </div>
       </section>
     );
@@ -825,7 +1335,7 @@ function ImageTools({ toolId }: { toolId: string }) {
 }
 
 function DeveloperTools({ toolId }: { toolId: string }) {
-  const [text, setText] = useState('{"name":"Utility Wiki","tools":42}');
+  const [text, setText] = useState('{"name":"Gomdol Tool","tools":42}');
   const [count, setCount] = useState(5);
   const [timestamp, setTimestamp] = useState("1713916800");
   const [hash, setHash] = useState("");
@@ -1336,7 +1846,7 @@ function BusinessCalculators({ toolId }: { toolId: string }) {
 }
 
 function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: string }) {
-  const [company, setCompany] = useState("Utility Wiki");
+  const [company, setCompany] = useState("Gomdol Tool");
   const [recipient, setRecipient] = useState("Acme Corp");
   const [title, setTitle] = useState(toolName);
   const [name, setName] = useState("홍길동");
@@ -1573,8 +2083,22 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
 
     const renderInvoicePreview = (copy: (typeof copies)[number]) => (
       <article key={copy.id} className="tax-preview-sheet">
-        <table className="tax-preview-table">
-          <tbody>
+        <TaxPreviewScaleFrame>
+          <table className="tax-preview-table">
+            <colgroup>
+              <col className="tax-col-month" />
+              <col className="tax-col-day" />
+              <col className="tax-col-label" />
+              <col className="tax-col-wide" />
+              <col className="tax-col-label" />
+              <col className="tax-col-party" />
+              <col className="tax-col-label" />
+              <col className="tax-col-mid" />
+              <col className="tax-col-money" />
+              <col className="tax-col-money" />
+              <col className="tax-col-note" />
+            </colgroup>
+            <tbody>
             <tr>
               <td className="tax-small-cell">책번호</td>
               <td className="tax-title-cell" colSpan={7} rowSpan={2} style={{ backgroundColor: copy.accentBg }}>
@@ -1693,8 +2217,9 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
                 이 세금계산서는 부가가치세법에 따라 교부하는 것입니다.
               </td>
             </tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </TaxPreviewScaleFrame>
       </article>
     );
 
@@ -1794,6 +2319,36 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
           .join("")}</body>
       </html>
     `;
+
+    const downloadTaxInvoicePdf = async () => {
+      const documentHtml = new DOMParser().parseFromString(printTarget, "text/html");
+      const styleText = documentHtml.querySelector("style")?.textContent ?? "";
+      const sheets = Array.from(documentHtml.querySelectorAll(".sheet")).map((sheet) => sheet.outerHTML);
+      const pageImages = await Promise.all(
+        sheets.map((sheet) =>
+          renderHtmlPageToJpeg(`
+            <style>
+              * { box-sizing: border-box; }
+              .pdf-page {
+                width: 1240px;
+                height: 1754px;
+                padding: 92px 76px;
+                background: #ffffff;
+                font-family: Arial, 'Noto Sans KR', sans-serif;
+                color: #1f2937;
+              }
+              ${styleText}
+              .sheet { width: 100%; margin: 0; }
+              table { width: 100%; }
+            </style>
+            <div class="pdf-page">${sheet}</div>
+          `),
+        ),
+      );
+
+      const filename = `${invoiceKind === "tax" ? "tax-invoice" : "invoice"}-${invoiceDate}.pdf`;
+      downloadBytes(filename, buildImagePdf(pageImages), "application/pdf");
+    };
 
     return (
       <section className="detail-card workbench-card tax-invoice-workbench">
@@ -1967,9 +2522,9 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
             </section>
 
             <div className="tool-actions-row tax-invoice-actions">
-              <button type="button" className="primary-action" onClick={() => printHtml(printTarget)}>
+              <button type="button" className="primary-action" onClick={() => void downloadTaxInvoicePdf()}>
                 <Printer size={16} />
-                인쇄하기 (공급자/공급받는자용)
+                PDF로 인쇄하기 (공급자/공급받는자용)
               </button>
               <button type="button" onClick={resetInvoice}>
                 <RotateCcw size={16} />
@@ -1979,7 +2534,13 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
           </div>
 
           <aside className="tax-invoice-preview-column">
-            <h3>미리보기</h3>
+            <div className="tax-preview-head">
+              <h3>미리보기</h3>
+              <button type="button" className="primary-action tax-print-button" onClick={() => void downloadTaxInvoicePdf()}>
+                <Printer size={16} />
+                PDF로 인쇄하기
+              </button>
+            </div>
             <div className="tax-preview-stack">
               {copies.map((copy) => renderInvoicePreview(copy))}
             </div>

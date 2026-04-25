@@ -36,7 +36,7 @@ export function Logo() {
     <Link className="brand" href="/">
       <MascotMark />
       <span>
-        <strong>Utility Wiki</strong>
+        <strong>Gomdol Tool</strong>
         <small>모든 유틸리티를 한 곳에</small>
       </span>
     </Link>

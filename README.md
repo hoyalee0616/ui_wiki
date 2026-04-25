@@ -1,4 +1,4 @@
-# Utility Wiki Codex Kit
+# Gomdol Tool Codex Kit
 
 이 폴더는 코덱스로 바로 UI 구현을 시작할 수 있도록 만든 기준 자료 모음이에요.
 

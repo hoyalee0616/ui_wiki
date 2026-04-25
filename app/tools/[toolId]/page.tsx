@@ -7,7 +7,6 @@ import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 import { ToolWorkbench } from "@/components/tools/ToolWorkbench";
 import { getRelatedTools, getSectionById, getToolById, tools } from "@/data/tools";
-import { AdBanner } from "@/components/common/AdBanner";
 
 export function generateStaticParams() {
   return tools.map((tool) => ({ toolId: tool.id }));
@@ -74,7 +73,6 @@ export default async function ToolDetailPage({
             <ArrowRight size={16} />
           </Link>
         </div>
-        <AdBanner />
         <Footer />
       </div>
     </DocsFrame>

@@ -1,8 +1,8 @@
-# Utility Wiki 스타일 가이드
+# Gomdol Tool 스타일 가이드
 _미니멀한 위키 스타일의 모바일/PC 유틸리티 사이트 UI 가이드_
 
 ## 1. 프로젝트 개요
-Utility Wiki는 **계산기 + 각종 변환기 + 간단한 보조 유틸리티**를 한곳에 모은 서비스예요.  
+Gomdol Tool은 **계산기 + 각종 변환기 + 간단한 보조 유틸리티**를 한곳에 모은 서비스예요.  
 방향성은 아래 3가지를 핵심으로 잡으면 돼요.
 
 1. **위키처럼 빠르게 찾을 수 있어야 함**
@@ -35,7 +35,7 @@ Utility Wiki는 **계산기 + 각종 변환기 + 간단한 보조 유틸리티**
 
 ## 4. 브랜드 방향
 ### 서비스명
-**Utility Wiki**
+**Gomdol Tool**
 
 ### 브랜드 톤
 - 친절함
@@ -49,7 +49,7 @@ Utility Wiki는 **계산기 + 각종 변환기 + 간단한 보조 유틸리티**
 - 얼굴은 단순한 점 눈 + 작은 입
 - 외곽선은 진하지 않은 부드러운 브라운/그레이
 - 크기는 작게, 과하게 튀지 않게 사용
-- 로고는 “캐릭터 + Utility Wiki 워드마크” 조합
+- 로고는 “캐릭터 + Gomdol Tool 워드마크” 조합
 
 ---
 
@@ -480,7 +480,7 @@ interface ToolItem {
 아래 문장을 코덱스에 바로 넣어서 초기 구현을 시킬 수 있어요.
 
 ```txt
-Create a responsive Utility Wiki website UI in Next.js + TypeScript.
+Create a responsive Gomdol Tool website UI in Next.js + TypeScript.
 Style it as a minimalist wiki-inspired utility service with soft pastel accents, rounded cards, subtle borders, and a cute mascot logo.
 Build desktop and mobile-friendly layouts.
 
