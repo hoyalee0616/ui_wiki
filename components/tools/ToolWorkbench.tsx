@@ -2100,16 +2100,16 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
             </colgroup>
             <tbody>
             <tr>
-              <td className="tax-small-cell">책번호</td>
+              <td className="tax-small-cell" colSpan={2}>책번호</td>
               <td className="tax-title-cell" colSpan={7} rowSpan={2} style={{ backgroundColor: copy.accentBg }}>
                 <strong style={{ color: copy.titleColor }}>{invoiceKind === "tax" ? "세 금 계 산 서" : "계 산 서"}</strong>
                 <span>{copy.paperNote}</span>
               </td>
-              <td className="tax-small-cell">공급받는자 등록번호</td>
+              <td className="tax-small-cell" colSpan={2}>공급받는자 등록번호</td>
             </tr>
             <tr>
-              <td className="tax-small-cell">일련번호</td>
-              <td className="tax-small-cell tax-center">{approvalNumber || "-"}</td>
+              <td className="tax-small-cell" colSpan={2}>일련번호</td>
+              <td className="tax-small-cell tax-center" colSpan={2}>{approvalNumber || "-"}</td>
             </tr>
             <tr>
               <td className="tax-party-label" rowSpan={4} style={{ color: copy.accentText, backgroundColor: copy.accentBg }}>

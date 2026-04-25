@@ -1,19 +1,12 @@
 import Link from "next/link";
+import Image from "next/image";
 
 function MascotMark() {
   return (
-    <img 
-      src="/logo.png" 
-      alt="Logo Mascot" 
-      className="logo-mark" 
-      style={{ 
-        width: "80px", 
-        height: "70px", 
-        objectFit: "contain", 
-        transform: "scale(1.6)",
-        marginLeft: "-10px",
-        marginRight: "-20px"
-      }}
+    <img
+      src="/logo.png"
+      alt="Logo Mascot"
+      className="logo-mark"
     />
   );
 }
@@ -33,10 +26,13 @@ export function Logo() {
 export function HeroMascot() {
   return (
     <div className="mascot-hero">
-      <img 
-        src="/logo2.png" 
-        alt="Gomdol Mascot" 
-        style={{ width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.2)" }} 
+      <Image
+        src="/logo2.png"
+        alt="Gomdol Mascot"
+        width={260}
+        height={202}
+        className="hero-mascot-image"
+        priority
       />
     </div>
   );
