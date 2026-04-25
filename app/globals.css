@@ -626,6 +626,7 @@ button {
   width: 260px;
   min-width: 260px;
   height: 202px;
+  margin-right: 60px;
 }
 
 .speech-bubble {

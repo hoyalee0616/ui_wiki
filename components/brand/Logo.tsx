@@ -6,7 +6,14 @@ function MascotMark() {
       src="/logo.png" 
       alt="Logo Mascot" 
       className="logo-mark" 
-      style={{ objectFit: "contain" }}
+      style={{ 
+        width: "80px", 
+        height: "70px", 
+        objectFit: "contain", 
+        transform: "scale(1.6)",
+        marginLeft: "-10px",
+        marginRight: "-20px"
+      }}
     />
   );
 }
@@ -29,7 +36,7 @@ export function HeroMascot() {
       <img 
         src="/logo2.png" 
         alt="Gomdol Mascot" 
-        style={{ width: "100%", height: "100%", objectFit: "contain" }} 
+        style={{ width: "100%", height: "100%", objectFit: "contain", transform: "scale(2.2)" }} 
       />
     </div>
   );
