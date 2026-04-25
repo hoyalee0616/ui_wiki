@@ -3,8 +3,8 @@ import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Utility Wiki",
-  description: "계산, 변환, 측정 도구를 빠르게 찾는 유틸리티 위키",
+  title: "Gomdol Tool",
+  description: "계산, 변환, 문서 도구를 빠르게 찾는 Gomdol Tool",
 };
 
 export default function RootLayout({
