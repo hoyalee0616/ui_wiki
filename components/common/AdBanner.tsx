@@ -13,14 +13,14 @@ export function AdBanner() {
   }, []);
 
   return (
-    <div className="ad-container" style={{ margin: "32px auto", textAlign: "center", maxWidth: "100%", overflow: "hidden", minHeight: "100px" }}>
+    <div className="ad-container" style={{ margin: "32px auto", textAlign: "center", width: "100%", overflowX: "hidden", minHeight: "100px" }}>
       <ins
         className="adsbygoogle"
-        style={{ display: "block" }}
+        style={{ display: "block", overflow: "hidden" }}
         data-ad-client="ca-pub-5188089974325767"
         data-ad-slot="5704536249"
         data-ad-format="auto"
-        data-full-width-responsive="true"
+        data-full-width-responsive="false"
       ></ins>
     </div>
   );
