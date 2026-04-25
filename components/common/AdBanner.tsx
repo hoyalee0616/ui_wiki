@@ -13,7 +13,7 @@ export function AdBanner() {
   }, []);
 
   return (
-    <div className="ad-container" style={{ margin: "32px 0", textAlign: "center", width: "100%", overflow: "hidden", minHeight: "100px" }}>
+    <div className="ad-container" style={{ margin: "32px auto", textAlign: "center", maxWidth: "100%", overflow: "hidden", minHeight: "100px" }}>
       <ins
         className="adsbygoogle"
         style={{ display: "block" }}
