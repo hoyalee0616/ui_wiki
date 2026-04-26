@@ -14,22 +14,89 @@ function parseNumber(value: string) {
   return Number(value.replace(/,/g, "").trim()) || 0;
 }
 
+function copyViaClipboardEvent(text: string, html?: string) {
+  let copied = false;
+  const listener = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+
+    event.clipboardData.setData("text/plain", text);
+    if (html) {
+      event.clipboardData.setData("text/html", html);
+    }
+    event.preventDefault();
+    copied = true;
+  };
+
+  document.addEventListener("copy", listener);
+  const commandCopied = document.execCommand("copy");
+  document.removeEventListener("copy", listener);
+  return copied || commandCopied;
+}
+
 async function copyText(text: string) {
-  if (!text) return;
+  if (!text) return false;
 
   try {
     await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "true");
-    textarea.style.position = "absolute";
-    textarea.style.left = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
+    // Fall back to selection-based copy below.
   }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  const selectedCopy = document.execCommand("copy");
+  document.body.removeChild(textarea);
+
+  if (selectedCopy) return true;
+
+  return copyViaClipboardEvent(text);
+}
+
+async function copyHtml(html: string, plainText: string) {
+  if (!html) return false;
+
+  try {
+    if ("ClipboardItem" in window && navigator.clipboard?.write) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([plainText || html], { type: "text/plain" }),
+        }),
+      ]);
+      return true;
+    }
+  } catch {
+    // Fall back to a rendered DOM selection below.
+  }
+
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  container.contentEditable = "true";
+  container.style.position = "fixed";
+  container.style.left = "-9999px";
+  container.style.top = "0";
+  document.body.appendChild(container);
+
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  const selectedCopy = document.execCommand("copy");
+  selection?.removeAllRanges();
+  container.remove();
+
+  if (selectedCopy) return true;
+
+  return copyViaClipboardEvent(plainText || html, html);
 }
 
 function downloadText(filename: string, content: string, mimeType = "text/plain;charset=utf-8") {
@@ -665,15 +732,112 @@ const converterSets = {
 };
 
 type ConverterType = keyof typeof converterSets;
+type MarkdownTableAlign = "left" | "center" | "right";
+
+const markdownAlignLabels: Record<MarkdownTableAlign, string> = {
+  left: "좌측",
+  center: "중앙",
+  right: "우측",
+};
+
+function createMarkdownTableData(rowCount: number, colCount: number) {
+  return Array.from({ length: rowCount + 1 }, (_, rowIndex) =>
+    Array.from({ length: colCount }, (_, colIndex) => (rowIndex === 0 ? `열 ${colIndex + 1}` : "")),
+  );
+}
+
+function resizeMarkdownTableData(data: string[][], rowCount: number, colCount: number) {
+  return Array.from({ length: rowCount + 1 }, (_, rowIndex) =>
+    Array.from({ length: colCount }, (_, colIndex) => data[rowIndex]?.[colIndex] ?? (rowIndex === 0 ? `열 ${colIndex + 1}` : "")),
+  );
+}
+
+function parseCsvRows(value: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const nextChar = value[index + 1];
+
+    if (char === '"' && quoted && nextChar === '"') {
+      cell += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if ((char === "," || char === "\t") && !quoted) {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && nextChar === "\n") index += 1;
+      row.push(cell.trim());
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  row.push(cell.trim());
+  rows.push(row);
+  return rows.filter((line) => line.some((entry) => entry.length > 0));
+}
+
+function buildPrettyTableHtml(header: string[], body: string[][], aligns: MarkdownTableAlign[]) {
+  const thRows = header
+    .map((cell, index) => `    <th style="text-align: ${aligns[index]}">${escapeHtml(cell)}</th>`)
+    .join("\n");
+  const bodyRows = body
+    .map((line) =>
+      [
+        "  <tr>",
+        ...line.map((cell, index) => `    <td style="text-align: ${aligns[index]}">${escapeHtml(cell)}</td>`),
+        "  </tr>",
+      ].join("\n"),
+    )
+    .join("\n");
+
+  return [
+    "<table>",
+    "  <thead>",
+    "  <tr>",
+    thRows,
+    "  </tr>",
+    "  </thead>",
+    "  <tbody>",
+    bodyRows,
+    "  </tbody>",
+    "</table>",
+  ].join("\n");
+}
 
 function DocumentTools({ toolId }: { toolId: string }) {
   const [text, setText] = useState(markdownExample);
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
+  const [tableData, setTableData] = useState(() => createMarkdownTableData(3, 3));
+  const [tableAligns, setTableAligns] = useState<MarkdownTableAlign[]>(() => Array.from({ length: 3 }, () => "left"));
+  const [csvInput, setCsvInput] = useState("");
+  const [tableCopyStatus, setTableCopyStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [tableManualCopy, setTableManualCopy] = useState<{ label: string; content: string } | null>(null);
   const [paragraphs, setParagraphs] = useState(3);
   const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>("split");
   const markdownTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const markdownFileInputRef = useRef<HTMLInputElement | null>(null);
+  const tableManualCopyRef = useRef<HTMLTextAreaElement | null>(null);
   const keyword = text.trim().toLowerCase();
   const filteredEmoji = emojiLibrary.filter(
     (item) =>
@@ -681,20 +845,28 @@ function DocumentTools({ toolId }: { toolId: string }) {
       item.symbol.includes(keyword) ||
       item.keywords.some((entry) => entry.toLowerCase().includes(keyword)),
   );
-  const header = Array.from({ length: cols }, (_, i) => `헤더${i + 1}`);
-  const divider = Array.from({ length: cols }, () => "---");
-  const body = Array.from({ length: rows }, (_, row) =>
-    Array.from({ length: cols }, (_, col) => `값${row + 1}-${col + 1}`),
-  );
+  const header = tableData[0] ?? [];
+  const body = tableData.slice(1);
+  const divider = tableAligns.map((align) => (align === "center" ? ":---:" : align === "right" ? "---:" : ":---"));
   const table = [
     `| ${header.join(" | ")} |`,
     `| ${divider.join(" | ")} |`,
     ...body.map((line) => `| ${line.join(" | ")} |`),
   ].join("\n");
+  const tableHtml = buildPrettyTableHtml(header, body, tableAligns);
   const generated = generateDummyText(paragraphs);
   const markdownHtml = renderMarkdown(text);
   const markdownLines = text.split("\n");
   const markdownStats = `${formatNumber(text.length, 0)}자 · ${formatNumber(countMarkdownWords(text), 0)} 단어`;
+
+  useEffect(() => {
+    if (!tableManualCopy) return;
+
+    window.requestAnimationFrame(() => {
+      tableManualCopyRef.current?.focus();
+      tableManualCopyRef.current?.select();
+    });
+  }, [tableManualCopy]);
 
   const insertMarkdownSnippet = (prefix: string, suffix = "", placeholder = "") => {
     const textarea = markdownTextareaRef.current;
@@ -712,6 +884,63 @@ function DocumentTools({ toolId }: { toolId: string }) {
       textarea.focus();
       textarea.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
     });
+  };
+
+  const updateMarkdownTableSize = (nextRows: number, nextCols: number) => {
+    const clampedRows = Math.min(Math.max(nextRows || 1, 1), 12);
+    const clampedCols = Math.min(Math.max(nextCols || 1, 1), 8);
+    setRows(clampedRows);
+    setCols(clampedCols);
+    setTableData((current) => resizeMarkdownTableData(current, clampedRows, clampedCols));
+    setTableAligns((current) => Array.from({ length: clampedCols }, (_, index) => current[index] ?? "left"));
+  };
+
+  const updateMarkdownTableCell = (rowIndex: number, colIndex: number, value: string) => {
+    setTableData((current) =>
+      current.map((row, currentRowIndex) =>
+        currentRowIndex === rowIndex
+          ? row.map((cell, currentColIndex) => (currentColIndex === colIndex ? value : cell))
+          : row,
+      ),
+    );
+  };
+
+  const updateMarkdownTableAlign = (colIndex: number, value: MarkdownTableAlign) => {
+    setTableAligns((current) => current.map((align, index) => (index === colIndex ? value : align)));
+  };
+
+  const importMarkdownCsv = () => {
+    const parsedRows = parseCsvRows(csvInput);
+    if (!parsedRows.length) return;
+
+    const nextRows = Math.max(parsedRows.length - 1, 1);
+    const nextCols = Math.max(...parsedRows.map((line) => line.length), 1);
+    const nextData = Array.from({ length: nextRows + 1 }, (_, rowIndex) =>
+      Array.from({ length: nextCols }, (_, colIndex) => parsedRows[rowIndex]?.[colIndex] ?? ""),
+    );
+
+    setRows(nextRows);
+    setCols(nextCols);
+    setTableData(nextData);
+    setTableAligns(Array.from({ length: nextCols }, () => "left"));
+  };
+
+  const showTableCopyStatus = (type: "success" | "error", message: string) => {
+    setTableCopyStatus({ type, message });
+    window.setTimeout(() => setTableCopyStatus(null), 2400);
+  };
+
+  const copyMarkdownTableValue = async (label: string, content: string) => {
+    const copied = await copyText(content);
+
+    if (copied) {
+      setTableManualCopy(null);
+      showTableCopyStatus("success", `${label} 코드를 복사했습니다.`);
+      return;
+    }
+
+    setTableManualCopy({ label, content });
+    showTableCopyStatus("error", "브라우저가 자동 복사를 막았습니다. 아래 선택된 내용을 Cmd+C / Ctrl+C로 복사해주세요.");
   };
 
   const importMarkdownFile = async (fileList: FileList | null) => {
@@ -794,21 +1023,116 @@ function DocumentTools({ toolId }: { toolId: string }) {
 
   if (toolId === "markdown-table") {
     return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>마크다운 테이블 생성기</strong><span>표 즉시 생성</span></div>
-        <div className="form-grid">
-          <label className="field-block">
-            <span>행 수</span>
-            <input type="number" min="1" max="10" value={rows} onChange={(e) => setRows(Number(e.target.value))} />
-          </label>
-          <label className="field-block">
-            <span>열 수</span>
-            <input type="number" min="1" max="10" value={cols} onChange={(e) => setCols(Number(e.target.value))} />
-          </label>
-        </div>
-        <textarea className="tool-textarea output" value={table} readOnly />
-        <div className="tool-actions-row">
-          <button type="button" onClick={() => copyText(table)}><Copy size={16} /> 복사</button>
+      <section className="markdown-table-workbench">
+        <div className="markdown-table-grid">
+          <div className="markdown-table-column">
+            <div className="markdown-table-card markdown-table-size-card">
+              <h3>테이블 크기</h3>
+              <div className="markdown-table-size-controls">
+                <label className="field-block">
+                  <span>열 개수</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="8"
+                    value={cols}
+                    onChange={(event) => updateMarkdownTableSize(rows, Number(event.target.value))}
+                  />
+                </label>
+                <label className="field-block">
+                  <span>행 개수</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="12"
+                    value={rows}
+                    onChange={(event) => updateMarkdownTableSize(Number(event.target.value), cols)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="markdown-table-card">
+              <h3>테이블 편집</h3>
+              <div className="markdown-table-editor" style={{ gridTemplateColumns: `repeat(${cols}, minmax(120px, 1fr))` }}>
+                {header.map((cell, colIndex) => (
+                  <div key={`header-${colIndex}`} className="markdown-table-cell is-header">
+                    <input
+                      value={cell}
+                      onChange={(event) => updateMarkdownTableCell(0, colIndex, event.target.value)}
+                      aria-label={`${colIndex + 1}열 제목`}
+                    />
+                  </div>
+                ))}
+                {tableAligns.map((align, colIndex) => (
+                  <div key={`align-${colIndex}`} className="markdown-table-cell markdown-table-align-cell">
+                    <select
+                      value={align}
+                      onChange={(event) => updateMarkdownTableAlign(colIndex, event.target.value as MarkdownTableAlign)}
+                      aria-label={`${colIndex + 1}열 정렬`}
+                    >
+                      {(Object.keys(markdownAlignLabels) as MarkdownTableAlign[]).map((alignOption) => (
+                        <option key={alignOption} value={alignOption}>{markdownAlignLabels[alignOption]}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+                {body.map((line, bodyRowIndex) =>
+                  line.map((cell, colIndex) => (
+                    <div key={`body-${bodyRowIndex}-${colIndex}`} className="markdown-table-cell">
+                      <input
+                        value={cell}
+                        onChange={(event) => updateMarkdownTableCell(bodyRowIndex + 1, colIndex, event.target.value)}
+                        aria-label={`${bodyRowIndex + 1}행 ${colIndex + 1}열`}
+                      />
+                    </div>
+                  )),
+                )}
+              </div>
+            </div>
+
+            <div className="markdown-table-card">
+              <h3>CSV 가져오기</h3>
+              <textarea
+                className="markdown-table-csv"
+                value={csvInput}
+                onChange={(event) => setCsvInput(event.target.value)}
+                placeholder="엑셀에서 복사한 데이터나 CSV를 붙여넣으세요"
+              />
+              <button type="button" className="markdown-table-import-button" onClick={importMarkdownCsv} disabled={!csvInput.trim()}>
+                가져오기
+              </button>
+            </div>
+          </div>
+
+          <div className="markdown-table-column">
+            <div className="markdown-table-card">
+              <h3>미리보기</h3>
+              <div className="markdown-table-preview" dangerouslySetInnerHTML={{ __html: tableHtml }} />
+            </div>
+
+            <div className="markdown-table-card">
+              <h3>마크다운 코드</h3>
+              <pre className="markdown-table-code">{table}</pre>
+              <div className="markdown-table-actions">
+                <button type="button" className="primary-action" onClick={() => void copyMarkdownTableValue("마크다운", table)}>
+                  <Copy size={16} /> 마크다운 복사
+                </button>
+                <button type="button" onClick={() => void copyMarkdownTableValue("HTML", tableHtml)}>
+                  HTML 복사
+                </button>
+              </div>
+              {tableCopyStatus && (
+                <p className={`markdown-table-copy-status is-${tableCopyStatus.type}`}>{tableCopyStatus.message}</p>
+              )}
+              {tableManualCopy && (
+                <label className="markdown-table-manual-copy">
+                  <span>{tableManualCopy.label} 직접 복사</span>
+                  <textarea ref={tableManualCopyRef} readOnly value={tableManualCopy.content} />
+                </label>
+              )}
+            </div>
+          </div>
         </div>
       </section>
     );
@@ -1743,10 +2067,24 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
   const [recipient, setRecipient] = useState("Acme Corp");
   const [title, setTitle] = useState(toolName);
   const [name, setName] = useState("홍길동");
-  const [role, setRole] = useState("Product Designer");
-  const [phone, setPhone] = useState("010-1234-5678");
+  const [role, setRole] = useState("프로덕트 디자이너");
+  const [phone, setPhone] = useState("02-1234-5678");
   const [email, setEmail] = useState("hello@utilitywiki.kr");
   const [website, setWebsite] = useState("https://utilitywiki.kr");
+  const [department, setDepartment] = useState("브랜드팀");
+  const [mobile, setMobile] = useState("010-1234-5678");
+  const [address, setAddress] = useState("서울시 강남구 테헤란로 123");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [linkedIn, setLinkedIn] = useState("");
+  const [twitter, setTwitter] = useState("");
+  const [instagram, setInstagram] = useState("");
+  const [sigTemplate, setSigTemplate] = useState("professional");
+  const [accentColor, setAccentColor] = useState("#2563eb");
+  const [sigFontSize, setSigFontSize] = useState<"small" | "medium" | "large">("medium");
+  const [dividerStyle, setDividerStyle] = useState<"line" | "pipe" | "none">("line");
+  const [sigInfoTab, setSigInfoTab] = useState<"basic" | "contact" | "social">("basic");
+  const [sigCopyStatus, setSigCopyStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [sigManualCopy, setSigManualCopy] = useState<{ type: "html" | "text"; label: string; content: string } | null>(null);
   const [year, setYear] = useState(new Date().getFullYear());
   const [items] = useState([
     { name: "서비스 기획", qty: 1, price: 800000 },
@@ -1801,6 +2139,7 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     },
   ]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sigManualCopyRef = useRef<HTMLTextAreaElement | HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (toolId !== "stamp-generator" || !canvasRef.current) return;
@@ -1818,6 +2157,27 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     ctx.textAlign = "center";
     ctx.fillText(name, 100, 105);
   }, [name, toolId]);
+
+  useEffect(() => {
+    if (!sigManualCopy) return;
+
+    window.requestAnimationFrame(() => {
+      const copyTarget = sigManualCopyRef.current;
+      if (!copyTarget) return;
+
+      copyTarget.focus();
+      if (copyTarget instanceof HTMLTextAreaElement) {
+        copyTarget.select();
+        return;
+      }
+
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(copyTarget);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+  }, [sigManualCopy]);
 
   const total = items.reduce((sum, item) => sum + item.qty * item.price, 0);
   const vat = Math.round(total * 0.1);
@@ -2455,22 +2815,332 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
   }
 
   if (toolId === "email-signature") {
-    const html = `<table><tr><td><strong>${name}</strong><br/>${role}<br/>${company}<br/>${phone}<br/><a href="mailto:${email}">${email}</a><br/><a href="${website}">${website}</a></td></tr></table>`;
+    const fsMap = {
+      small:  { base: "11px", name: "14px", role: "12px", line: "1.5" },
+      medium: { base: "13px", name: "16px", role: "13px", line: "1.6" },
+      large:  { base: "15px", name: "18px", role: "15px", line: "1.7" },
+    };
+    const fs = fsMap[sigFontSize];
+    const ac = accentColor;
+    const deptCompany = [department, company].filter(Boolean).join(" | ");
+    const logoImg = logoUrl
+      ? `<img src="${logoUrl}" alt="${name}" width="52" height="52" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;margin-bottom:10px" />`
+      : "";
+    const websiteClean = website.replace(/^https?:\/\//, "");
+    const websiteHref = website.startsWith("http") ? website : website ? `https://${website}` : "";
+
+    const contactRows = [
+      phone   && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#374151;line-height:${fs.line}">T: ${phone}</td></tr>`,
+      mobile  && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#374151;line-height:${fs.line}">M: ${mobile}</td></tr>`,
+      email   && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#374151;line-height:${fs.line}">E: <a href="mailto:${email}" style="color:${ac};text-decoration:none">${email}</a></td></tr>`,
+      websiteClean && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#374151;line-height:${fs.line}">W: <a href="${websiteHref}" style="color:${ac};text-decoration:none">${websiteClean}</a></td></tr>`,
+      address && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#374151;line-height:${fs.line}">${address}</td></tr>`,
+    ].filter(Boolean).join("");
+
+    const socialLinks = [
+      linkedIn  && `<a href="${linkedIn}"  style="display:inline-block;margin-right:10px;font-size:${fs.base};color:${ac};text-decoration:none">LinkedIn</a>`,
+      twitter   && `<a href="${twitter}"   style="display:inline-block;margin-right:10px;font-size:${fs.base};color:${ac};text-decoration:none">Twitter / X</a>`,
+      instagram && `<a href="${instagram}" style="display:inline-block;margin-right:10px;font-size:${fs.base};color:${ac};text-decoration:none">Instagram</a>`,
+    ].filter(Boolean).join("");
+
+    const sep = dividerStyle === "pipe" ? " | " : " · ";
+
+    const hrBlock = dividerStyle === "line"
+      ? `<tr><td style="padding:8px 0 6px"><table cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:2px solid ${ac};width:200px;height:0;font-size:0">&nbsp;</td></tr></table></td></tr>`
+      : `<tr><td style="padding:6px 0"></td></tr>`;
+
+    const socialRow = socialLinks
+      ? `<tr><td style="padding-top:8px">${socialLinks}</td></tr>`
+      : "";
+
+    const innerBlock = (showLogo = true) => `
+      ${showLogo ? logoImg : ""}
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="font-size:${fs.name};font-weight:700;color:#111827;padding-bottom:2px;line-height:1.3">${name || "이름"}</td></tr>
+        <tr><td style="font-size:${fs.role};color:${ac};font-weight:600;padding-bottom:3px;line-height:1.4">${role || "직책"}</td></tr>
+        ${deptCompany ? `<tr><td style="font-size:${fs.base};color:#6b7280;padding-bottom:8px;line-height:1.4">${deptCompany}</td></tr>` : ""}
+        ${hrBlock}
+        ${contactRows}
+        ${socialRow}
+      </table>`;
+
+    const TEMPLATE_HTML: Record<string, string> = {
+      simple: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif"><tr><td>${innerBlock()}</td></tr></table>`,
+
+      professional: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif"><tr><td>
+        ${logoImg}
+        <table cellpadding="0" cellspacing="0" border="0">
+          <tr><td style="font-size:${fs.name};font-weight:700;color:#111827;padding-bottom:2px">${name || "이름"}</td></tr>
+          <tr><td style="font-size:${fs.role};color:${ac};font-weight:600;padding-bottom:3px">${role || "직책"}</td></tr>
+          ${deptCompany ? `<tr><td style="font-size:${fs.base};color:#6b7280;padding-bottom:8px">${deptCompany}</td></tr>` : ""}
+          <tr><td style="padding:6px 0 4px"><table cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:2px solid ${ac};width:220px;height:0;font-size:0">&nbsp;</td></tr></table></td></tr>
+          ${contactRows}
+          ${socialRow}
+        </table>
+      </td></tr></table>`,
+
+      modern: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif"><tr>
+        <td style="background:${ac};width:4px;padding:0">&nbsp;</td>
+        <td style="padding-left:16px">${innerBlock()}</td>
+      </tr></table>`,
+
+      card: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border:1px solid #e5e7eb">
+        <tr><td style="background:${ac};height:4px;font-size:0">&nbsp;</td></tr>
+        <tr><td style="padding:16px 20px">${innerBlock()}</td></tr>
+      </table>`,
+
+      compact: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif"><tr><td style="font-size:${fs.base};color:#374151;line-height:1.8">
+        <strong style="font-size:${fs.role};color:#111827">${name || "이름"}</strong>
+        ${role ? `<span style="color:${ac}">${sep}${role}</span>` : ""}
+        ${company ? `<span style="color:#6b7280">${sep}${company}</span>` : ""}
+        ${phone ? `<span>${sep}${phone}</span>` : ""}
+        ${email ? `<span>${sep}<a href="mailto:${email}" style="color:${ac};text-decoration:none">${email}</a></span>` : ""}
+        ${websiteClean ? `<span>${sep}<a href="${websiteHref}" style="color:${ac};text-decoration:none">${websiteClean}</a></span>` : ""}
+      </td></tr></table>`,
+
+      topline: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-top:3px solid ${ac}">
+        <tr><td style="padding:12px 0 0">${innerBlock()}</td></tr>
+      </table>`,
+
+      minimal: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif"><tr><td>
+        <table cellpadding="0" cellspacing="0" border="0">
+          <tr><td style="font-size:${fs.name};font-weight:700;color:#111827;padding-bottom:2px">${name || "이름"}</td></tr>
+          ${role || company ? `<tr><td style="font-size:${fs.base};color:#6b7280;padding-bottom:8px">${[role, company].filter(Boolean).join(", ")}</td></tr>` : ""}
+          ${email ? `<tr><td style="font-size:${fs.base}"><a href="mailto:${email}" style="color:${ac};text-decoration:none">${email}</a></td></tr>` : ""}
+          ${phone ? `<tr><td style="font-size:${fs.base};color:#374151;padding-top:2px">${phone}</td></tr>` : ""}
+          ${socialRow}
+        </table>
+      </td></tr></table>`,
+
+      twocol: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif"><tr>
+        ${logoUrl ? `<td style="padding-right:16px;vertical-align:top"><img src="${logoUrl}" alt="${name}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;display:block" /></td><td style="border-left:1px solid #e5e7eb;padding-left:16px;vertical-align:top">` : "<td style=\"vertical-align:top\">"}
+          <table cellpadding="0" cellspacing="0" border="0">
+            <tr><td style="font-size:${fs.name};font-weight:700;color:#111827;padding-bottom:2px">${name || "이름"}</td></tr>
+            <tr><td style="font-size:${fs.role};color:${ac};padding-bottom:3px">${role || "직책"}</td></tr>
+            ${deptCompany ? `<tr><td style="font-size:${fs.base};color:#6b7280;padding-bottom:8px">${deptCompany}</td></tr>` : ""}
+            ${contactRows}
+            ${socialRow}
+          </table>
+        </td>
+      </tr></table>`,
+
+      dark: `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;background:#1f2937;border-radius:8px"><tr><td style="padding:16px 20px">
+        ${logoImg}
+        <table cellpadding="0" cellspacing="0" border="0">
+          <tr><td style="font-size:${fs.name};font-weight:700;color:#f9fafb;padding-bottom:2px">${name || "이름"}</td></tr>
+          <tr><td style="font-size:${fs.role};color:${ac};font-weight:600;padding-bottom:3px">${role || "직책"}</td></tr>
+          ${deptCompany ? `<tr><td style="font-size:${fs.base};color:#9ca3af;padding-bottom:8px">${deptCompany}</td></tr>` : ""}
+          <tr><td style="padding:6px 0 4px"><table cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${ac};width:180px;height:0;font-size:0">&nbsp;</td></tr></table></td></tr>
+          ${[
+            phone   && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#d1d5db">T: ${phone}</td></tr>`,
+            mobile  && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#d1d5db">M: ${mobile}</td></tr>`,
+            email   && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#d1d5db">E: <a href="mailto:${email}" style="color:${ac};text-decoration:none">${email}</a></td></tr>`,
+            websiteClean && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#d1d5db">W: <a href="${websiteHref}" style="color:${ac};text-decoration:none">${websiteClean}</a></td></tr>`,
+            address && `<tr><td style="padding:1px 0;font-size:${fs.base};color:#d1d5db">${address}</td></tr>`,
+          ].filter(Boolean).join("")}
+          ${socialRow}
+        </table>
+      </td></tr></table>`,
+    };
+
+    const sigHtml = TEMPLATE_HTML[sigTemplate] ?? TEMPLATE_HTML.professional;
+
+    const plainText = [
+      name,
+      role && company ? `${role} | ${company}` : (role || company),
+      department,
+      "",
+      phone   && `T: ${phone}`,
+      mobile  && `M: ${mobile}`,
+      email   && `E: ${email}`,
+      websiteClean && `W: ${websiteClean}`,
+      address,
+      linkedIn  && `LinkedIn: ${linkedIn}`,
+      twitter   && `Twitter: ${twitter}`,
+      instagram && `Instagram: ${instagram}`,
+    ].filter(Boolean).join("\n");
+
+    const PRESET_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2"];
+    const TEMPLATES = [
+      { id: "simple",       label: "심플",       desc: "깔끔하고 간단한 디자인" },
+      { id: "professional", label: "프로페셔널", desc: "전문적인 비즈니스 스타일" },
+      { id: "modern",       label: "모던",       desc: "사이드 컬러 바 스타일" },
+      { id: "card",         label: "카드형",     desc: "상단 컬러 바 카드" },
+      { id: "compact",      label: "컴팩트",     desc: "한 줄로 압축된 스타일" },
+      { id: "topline",      label: "상단 라인",  desc: "컬러 상단 구분선" },
+      { id: "minimal",      label: "미니멀",     desc: "극도로 간결한 스타일" },
+      { id: "twocol",       label: "투컬럼",     desc: "프로필 + 정보 분리형" },
+      { id: "dark",         label: "다크",       desc: "어두운 배경 스타일" },
+    ];
+
+    const showSigCopyStatus = (type: "success" | "error", message: string) => {
+      setSigCopyStatus({ type, message });
+      window.setTimeout(() => setSigCopyStatus(null), 2200);
+    };
+
+    const handleCopySignatureHtml = async () => {
+      const copied = await copyHtml(sigHtml, plainText);
+      if (copied) {
+        setSigManualCopy(null);
+        showSigCopyStatus("success", "HTML 서명을 복사했습니다.");
+        return;
+      }
+
+      setSigManualCopy({ type: "html", label: "HTML", content: sigHtml.trim() });
+      showSigCopyStatus("error", "브라우저가 HTML 자동 복사를 막았습니다. 아래 선택된 서명 영역을 Cmd+C / Ctrl+C로 복사해주세요.");
+    };
+
+    const handleCopySignatureText = async () => {
+      const copied = await copyText(plainText);
+      if (copied) {
+        setSigManualCopy(null);
+        showSigCopyStatus("success", "텍스트 서명을 복사했습니다.");
+        return;
+      }
+
+      setSigManualCopy({ type: "text", label: "텍스트", content: plainText });
+      showSigCopyStatus("error", "브라우저가 자동 복사를 막았습니다. 아래 선택된 내용을 Cmd+C / Ctrl+C로 복사해주세요.");
+    };
+
     return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>이메일 서명</strong><span>HTML 생성</span></div>
-        <div className="form-grid">
-          <label className="field-block"><span>이름</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <label className="field-block"><span>직함</span><input value={role} onChange={(e) => setRole(e.target.value)} /></label>
-          <label className="field-block"><span>회사명</span><input value={company} onChange={(e) => setCompany(e.target.value)} /></label>
-          <label className="field-block"><span>전화번호</span><input value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-          <label className="field-block"><span>이메일</span><input value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label className="field-block"><span>웹사이트</span><input value={website} onChange={(e) => setWebsite(e.target.value)} /></label>
-        </div>
-        <div className="document-sheet" dangerouslySetInnerHTML={{ __html: html }} />
-        <textarea className="tool-textarea output" value={html} readOnly />
-        <div className="tool-actions-row">
-          <button type="button" onClick={() => copyText(html)}><Copy size={16} /> HTML 복사</button>
+      <section className="email-sig-workbench">
+        <div className="email-sig-layout">
+          <div className="email-sig-form-col">
+            <div className="email-sig-section">
+              <div className="email-sig-section-head">
+                <strong>정보 입력</strong>
+              </div>
+              <div className="email-sig-tabs">
+                {(["basic", "contact", "social"] as const).map((t, i) => (
+                  <button key={t} type="button" className={`email-sig-tab ${sigInfoTab === t ? "is-active" : ""}`} onClick={() => setSigInfoTab(t)}>
+                    {["기본", "연락처", "소셜"][i]}
+                  </button>
+                ))}
+              </div>
+              {sigInfoTab === "basic" && (
+                <div className="form-grid tax-form-grid email-sig-form-grid">
+                  <label className="field-block"><span>이름 *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" /></label>
+                  <label className="field-block"><span>직책 *</span><input value={role} onChange={(e) => setRole(e.target.value)} placeholder="프로덕트 디자이너" /></label>
+                  <label className="field-block"><span>회사</span><input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="테크 컴퍼니" /></label>
+                  <label className="field-block"><span>부서</span><input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="브랜드팀" /></label>
+                  <label className="field-block wide"><span>프로필/로고 URL</span><input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://example.com/photo.jpg" /></label>
+                </div>
+              )}
+              {sigInfoTab === "contact" && (
+                <div className="form-grid tax-form-grid email-sig-form-grid">
+                  <label className="field-block"><span>전화번호</span><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="02-1234-5678" /></label>
+                  <label className="field-block"><span>휴대폰</span><input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="010-1234-5678" /></label>
+                  <label className="field-block"><span>이메일</span><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="hong@example.com" /></label>
+                  <label className="field-block"><span>웹사이트</span><input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="example.com" /></label>
+                  <label className="field-block wide"><span>주소</span><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="서울시 강남구 테헤란로 123" /></label>
+                </div>
+              )}
+              {sigInfoTab === "social" && (
+                <div className="form-grid tax-form-grid email-sig-form-grid">
+                  <label className="field-block wide"><span>LinkedIn URL</span><input value={linkedIn} onChange={(e) => setLinkedIn(e.target.value)} placeholder="https://linkedin.com/in/username" /></label>
+                  <label className="field-block wide"><span>Twitter / X URL</span><input value={twitter} onChange={(e) => setTwitter(e.target.value)} placeholder="https://twitter.com/username" /></label>
+                  <label className="field-block wide"><span>Instagram URL</span><input value={instagram} onChange={(e) => setInstagram(e.target.value)} placeholder="https://instagram.com/username" /></label>
+                </div>
+              )}
+            </div>
+
+            <div className="email-sig-section email-sig-style-section">
+              <div className="email-sig-section-head"><strong>스타일 설정</strong></div>
+              <div className="email-sig-style-row">
+                <label className="email-sig-style-label">컬러</label>
+                <div className="email-sig-color-row">
+                  <span className="email-sig-color-swatch" style={{ background: accentColor }} />
+                  <input className="tool-input email-sig-color-input" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} />
+                </div>
+                <div className="email-sig-presets">
+                  {PRESET_COLORS.map((c) => (
+                    <button key={c} type="button" className={`email-sig-preset ${accentColor === c ? "is-active" : ""}`} style={{ background: c }} onClick={() => setAccentColor(c)} aria-label={c} />
+                  ))}
+                </div>
+              </div>
+              <div className="email-sig-style-row">
+                <label className="email-sig-style-label">폰트 크기</label>
+                <div className="email-sig-tabs">
+                  {(["small", "medium", "large"] as const).map((s, i) => (
+                    <button key={s} type="button" className={`email-sig-tab ${sigFontSize === s ? "is-active" : ""}`} onClick={() => setSigFontSize(s)}>
+                      {["작게", "보통", "크게"][i]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="email-sig-style-row">
+                <label className="email-sig-style-label">구분선</label>
+                <div className="email-sig-tabs">
+                  {(["line", "pipe", "none"] as const).map((s, i) => (
+                    <button key={s} type="button" className={`email-sig-tab ${dividerStyle === s ? "is-active" : ""}`} onClick={() => setDividerStyle(s)}>
+                      {["라인", "파이프", "없음"][i]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="email-sig-preview-col">
+            <div className="email-sig-tpl-section">
+              <div className="email-sig-section-head"><strong>템플릿</strong></div>
+              <div className="email-sig-template-grid">
+                {TEMPLATES.map((t) => (
+                  <button key={t.id} type="button" title={t.desc} className={`email-sig-template-card ${sigTemplate === t.id ? "is-active" : ""}`} onClick={() => setSigTemplate(t.id)}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="email-sig-result-section">
+              <div className="email-sig-section-head">
+                <strong>미리보기</strong>
+                <div className="email-sig-action-row">
+                  <button type="button" className="primary-action email-sig-copy-button" onClick={() => void handleCopySignatureHtml()}>
+                    <Copy size={14} /> HTML 복사
+                  </button>
+                  <button type="button" className="email-sig-copy-button" onClick={() => void handleCopySignatureText()}>
+                    텍스트 복사
+                  </button>
+                </div>
+              </div>
+              {sigCopyStatus && (
+                <p className={`email-sig-copy-status is-${sigCopyStatus.type}`}>{sigCopyStatus.message}</p>
+              )}
+              {sigManualCopy && (
+                <div className="email-sig-manual-copy">
+                  <span>{sigManualCopy.label} 직접 복사</span>
+                  {sigManualCopy.type === "html" ? (
+                    <div
+                      ref={(node) => {
+                        sigManualCopyRef.current = node;
+                      }}
+                      className="email-sig-manual-html"
+                      tabIndex={0}
+                      dangerouslySetInnerHTML={{ __html: sigManualCopy.content }}
+                    />
+                  ) : (
+                    <textarea
+                      ref={(node) => {
+                        sigManualCopyRef.current = node;
+                      }}
+                      readOnly
+                      value={sigManualCopy.content}
+                    />
+                  )}
+                </div>
+              )}
+              <div className="email-sig-preview-box">
+                <div dangerouslySetInnerHTML={{ __html: sigHtml }} />
+              </div>
+              <div className="email-sig-howto">
+                <p><strong>Gmail</strong> 설정 &gt; 모든 설정 보기 &gt; 서명</p>
+                <p><strong>Outlook</strong> 파일 &gt; 옵션 &gt; 메일 &gt; 서명</p>
+                <p><strong>Apple Mail</strong> 설정 &gt; 서명 &gt; HTML 붙여넣기</p>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     );

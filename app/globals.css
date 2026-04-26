@@ -2115,6 +2115,238 @@ button {
   list-style: none;
 }
 
+.markdown-table-workbench {
+  min-width: 0;
+}
+
+.markdown-table-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+}
+
+.markdown-table-column {
+  display: grid;
+  gap: 28px;
+  min-width: 0;
+}
+
+.markdown-table-card {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.markdown-table-card h3 {
+  margin: 0 0 28px;
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.markdown-table-size-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+}
+
+.markdown-table-size-controls .field-block {
+  width: 120px;
+}
+
+.markdown-table-size-controls input {
+  height: 46px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+
+.markdown-table-editor {
+  display: grid;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  overflow-x: auto;
+}
+
+.markdown-table-cell {
+  min-width: 0;
+  padding: 6px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-table-cell:nth-child(3n) {
+  border-right: 1px solid var(--border);
+}
+
+.markdown-table-cell input,
+.markdown-table-cell select {
+  width: 100%;
+  height: 44px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  outline: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.markdown-table-cell input {
+  padding: 0 14px;
+}
+
+.markdown-table-cell.is-header input {
+  text-align: center;
+  font-weight: 800;
+}
+
+.markdown-table-cell select {
+  padding: 0 34px 0 14px;
+  appearance: auto;
+}
+
+.markdown-table-preview {
+  overflow-x: auto;
+}
+
+.markdown-table-preview table {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.markdown-table-preview th,
+.markdown-table-preview td {
+  height: 56px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+.markdown-table-preview th {
+  background: #f4f4f5;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.markdown-table-code {
+  min-height: 150px;
+  margin: 0;
+  padding: 20px;
+  border-radius: 12px;
+  background: #f4f4f5;
+  overflow: auto;
+  color: #111827;
+  font-family: var(--font-mono), "SFMono-Regular", Consolas, monospace;
+  font-size: 16px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.markdown-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.markdown-table-actions button,
+.markdown-table-import-button {
+  min-width: 0;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.markdown-table-actions .primary-action {
+  border-color: var(--text-primary);
+  background: #111111;
+  color: #ffffff;
+}
+
+.markdown-table-copy-status {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.markdown-table-copy-status.is-success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.markdown-table-copy-status.is-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.markdown-table-manual-copy {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.markdown-table-manual-copy span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.markdown-table-manual-copy textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcff;
+  color: var(--text-primary);
+  font-family: var(--font-mono), "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.markdown-table-csv {
+  width: 100%;
+  min-height: 150px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  outline: 0;
+  resize: vertical;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.markdown-table-import-button {
+  margin-top: 16px;
+  background: #777777;
+  color: #ffffff;
+}
+
+.markdown-table-import-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .markdown-quickbar {
   flex-wrap: wrap;
   padding: 10px 12px;
@@ -2861,6 +3093,355 @@ button {
   color: var(--text-tertiary);
 }
 
+/* ── Email Signature Tool ────────────────────────────────── */
+.email-sig-workbench {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.email-sig-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* ── Left column ── */
+.email-sig-form-col {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.email-sig-section {
+  padding: 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.email-sig-section:last-child {
+  border-bottom: none;
+}
+
+.email-sig-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.email-sig-section-head strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.email-sig-style-section {
+  gap: 16px;
+}
+
+.email-sig-style-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.email-sig-style-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.email-sig-form-grid {
+  gap: 16px;
+}
+
+.email-sig-form-grid .field-block span {
+  font-size: 14px;
+}
+
+.email-sig-form-grid input {
+  height: 52px;
+  font-size: 15px;
+}
+
+.email-sig-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.email-sig-color-swatch {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.email-sig-color-input {
+  height: 42px;
+  font-size: 14px;
+}
+
+.email-sig-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.email-sig-preset {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+  flex-shrink: 0;
+}
+
+.email-sig-preset:hover { transform: scale(1.18); }
+
+.email-sig-preset.is-active {
+  border-color: var(--text-primary);
+  transform: scale(1.18);
+}
+
+/* ── Right column ── */
+.email-sig-preview-col {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.email-sig-tpl-section {
+  flex-shrink: 0;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.email-sig-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.email-sig-template-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.email-sig-template-card:hover {
+  border-color: var(--accent);
+  background: rgba(37, 99, 235, 0.05);
+  color: var(--accent);
+}
+
+.email-sig-template-card.is-active {
+  border-color: var(--accent);
+  background: rgba(37, 99, 235, 0.09);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.email-sig-result-section {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  gap: 14px;
+}
+
+.email-sig-action-row {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.email-sig-copy-button {
+  min-height: 42px;
+  height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.email-sig-copy-button.primary-action {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  color: #ffffff;
+}
+
+.email-sig-copy-status {
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.email-sig-copy-status.is-success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.email-sig-copy-status.is-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.email-sig-manual-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.email-sig-manual-copy span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.email-sig-manual-copy textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcff;
+  color: var(--text-primary);
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.email-sig-manual-html {
+  width: 100%;
+  min-height: 120px;
+  padding: 16px;
+  border: 2px solid #f59e0b;
+  border-radius: 12px;
+  background: #ffffff;
+  outline: 0;
+  overflow: auto;
+}
+
+.email-sig-manual-html:focus {
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+@media (max-width: 1399px) {
+  .email-sig-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .email-sig-form-col {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .email-sig-template-grid {
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  }
+}
+
+.email-sig-preview-box {
+  min-height: 250px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  background: #ffffff;
+  overflow: auto;
+}
+
+.email-sig-howto {
+  flex-shrink: 0;
+  display: grid;
+  gap: 6px;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.email-sig-howto p {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin: 0;
+  line-height: 1.55;
+}
+
+.email-sig-howto strong {
+  color: var(--text-secondary);
+}
+
+.email-sig-note {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: 2px 0 0;
+  line-height: 1.5;
+}
+
+.email-sig-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.email-sig-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px;
+}
+
+.email-sig-tab {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.email-sig-tab.is-active {
+  background: #ffffff;
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
 @media (max-width: 1199px) {
   .main-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -2923,6 +3504,7 @@ button {
   }
 
   .tax-invoice-layout,
+  .markdown-table-grid,
   .tool-detail-hero,
   .tool-detail-grid,
   .two-column-section,
@@ -2938,6 +3520,14 @@ button {
   .tool-section-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .email-sig-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .email-sig-template-grid {
+    grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
   }
 }
 
@@ -3046,6 +3636,43 @@ button {
   .tool-textarea {
     padding: 12px;
     font-size: 15px;
+  }
+
+  .markdown-table-grid,
+  .markdown-table-column {
+    gap: 16px;
+  }
+
+  .markdown-table-card {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .markdown-table-card h3 {
+    margin-bottom: 18px;
+    font-size: 20px;
+  }
+
+  .markdown-table-size-controls {
+    gap: 12px;
+  }
+
+  .markdown-table-size-controls .field-block {
+    flex: 1 1 120px;
+  }
+
+  .markdown-table-editor {
+    grid-auto-columns: minmax(120px, 1fr);
+  }
+
+  .markdown-table-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .markdown-table-actions button,
+  .markdown-table-import-button {
+    width: 100%;
   }
 
   .metric-card {
@@ -3452,5 +4079,46 @@ button {
 
   .content-area {
     padding: 18px 16px 32px;
+  }
+
+  .email-sig-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .email-sig-form-col {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: none;
+  }
+
+  .email-sig-preview-col {
+    height: auto;
+    overflow: visible;
+  }
+
+  .email-sig-tpl-section {
+    padding: 12px;
+  }
+
+  .email-sig-result-section {
+    height: auto;
+    overflow: visible;
+    padding: 12px;
+  }
+
+  .email-sig-preview-box {
+    flex: none;
+    min-height: 180px;
+    max-height: none;
+  }
+
+  .email-sig-action-row {
+    flex-direction: column;
+  }
+
+  .email-sig-action-row button {
+    width: 100% !important;
+    justify-content: center;
   }
 }
