@@ -2511,12 +2511,17 @@ button {
   overflow: hidden;
 }
 
+.tax-mobile-tabs {
+  display: none;
+}
+
 .tax-invoice-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(520px, 1fr);
   align-items: start;
   gap: 22px;
   min-width: 0;
+  padding: 22px;
 }
 
 .tax-invoice-form-column,
@@ -2909,6 +2914,14 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .emoji-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .calendar-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .tax-invoice-layout,
   .tool-detail-hero,
   .tool-detail-grid,
@@ -2962,7 +2975,7 @@ button {
   }
 
   .brand small {
-    font-size: 11px;
+    display: none;
   }
 
   .header-menu-button {
@@ -3085,12 +3098,19 @@ button {
   }
 
   .mascot-hero {
+    width: 200px;
+    min-width: 0;
+    height: 160px;
     justify-self: center;
     margin-left: auto;
-    margin-bottom: -20px;
+    margin-bottom: -10px;
     margin-right: auto;
-    transform: none;
-    transform-origin: bottom right;
+    overflow: hidden;
+    border-radius: 20px;
+  }
+
+  .hero-mascot-image {
+    transform: scale(1.3);
   }
 
   .tool-grid {
@@ -3099,10 +3119,16 @@ button {
 
   .spotlight-grid,
   .menu-summary-grid,
-  .section-tool-grid,
-  .calendar-grid,
-  .emoji-grid {
+  .section-tool-grid {
     grid-template-columns: 1fr;
+  }
+
+  .emoji-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .calendar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tax-basic-grid,
@@ -3121,6 +3147,7 @@ button {
 
   .tax-invoice-layout {
     gap: 14px;
+    padding: 14px;
   }
 
   .tax-invoice-form-column {
@@ -3207,9 +3234,36 @@ button {
     white-space: nowrap;
   }
 
-  .tax-print-button {
-    width: 100%;
+  .tax-mobile-hidden {
+    display: none !important;
+  }
+
+  .tax-mobile-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 14px 14px 0;
+  }
+
+  .tax-mobile-tab {
+    height: 46px;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
+    gap: 8px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text-secondary);
+  }
+
+  .tax-mobile-tab.is-active {
+    background: var(--text-primary);
+    border-color: var(--text-primary);
+    color: #ffffff;
   }
 
   .tax-preview-sheet {
@@ -3217,41 +3271,9 @@ button {
     border-radius: 16px;
   }
 
-  .tax-preview-table {
-    min-width: 0;
+  .tax-print-button {
     width: 100%;
-    border-width: 2px;
-  }
-
-  .tax-preview-table td {
-    padding: 2px 2px;
-    font-size: 7.5px;
-    line-height: 1.18;
-  }
-
-  .tax-title-cell strong {
-    font-size: 13px;
-    letter-spacing: 0.16em;
-  }
-
-  .tax-title-cell span {
-    margin-top: 3px;
-    font-size: 6.5px;
-  }
-
-  .tax-party-label {
-    width: 18px;
-    padding: 4px 0;
-    font-size: 7px;
-  }
-
-  .tax-total-label {
-    width: 44px;
-  }
-
-  .tax-purpose-box strong {
-    gap: 2px;
-    margin: 2px 0;
+    justify-content: center;
   }
 
   .markdown-toolbar {
@@ -3408,6 +3430,15 @@ button {
 
   .section-overview-head h3 {
     font-size: 24px;
+  }
+
+  .section-directory-title h3 {
+    font-size: 22px;
+  }
+
+  .section-overview-meta {
+    min-width: 0;
+    align-items: flex-start;
   }
 
   .tool-detail-copy h1 {

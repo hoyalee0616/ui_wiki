@@ -467,113 +467,6 @@ function downloadMarkdownPdf(title: string, markdown: string) {
   downloadBytes("markdown-preview.pdf", buildSimplePdf(title, markdown), "application/pdf");
 }
 
-function dataUrlToBytes(dataUrl: string) {
-  const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = atob(base64);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
-function buildImagePdf(pages: Uint8Array[]) {
-  const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  const objects: Uint8Array[] = [];
-  const addTextObject = (body: string) => {
-    objects.push(encoder.encode(body));
-    return objects.length;
-  };
-  const addStreamObject = (dictionary: string, stream: Uint8Array) => {
-    const head = encoder.encode(`${dictionary}\nstream\n`);
-    const tail = encoder.encode("\nendstream");
-    const objectBytes = new Uint8Array(head.length + stream.length + tail.length);
-    objectBytes.set(head, 0);
-    objectBytes.set(stream, head.length);
-    objectBytes.set(tail, head.length + stream.length);
-    objects.push(objectBytes);
-    return objects.length;
-  };
-
-  const catalogId = addTextObject("<< /Type /Catalog /Pages 2 0 R >>");
-  const pagesId = addTextObject("");
-  const pageIds: number[] = [];
-
-  pages.forEach((imageBytes) => {
-    const imageId = addStreamObject(
-      `<< /Type /XObject /Subtype /Image /Width 1240 /Height 1754 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>`,
-      imageBytes,
-    );
-    const content = "q\n595 0 0 842 0 0 cm\n/Im1 Do\nQ";
-    const contentId = addStreamObject(`<< /Length ${encoder.encode(content).length} >>`, encoder.encode(content));
-    const pageId = addTextObject(
-      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im1 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
-    );
-    pageIds.push(pageId);
-  });
-
-  objects[pagesId - 1] = encoder.encode(
-    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`,
-  );
-
-  chunks.push(encoder.encode("%PDF-1.4\n%âãÏÓ\n"));
-  const offsets = [0];
-  let length = chunks[0].length;
-  objects.forEach((body, index) => {
-    offsets.push(length);
-    const head = encoder.encode(`${index + 1} 0 obj\n`);
-    const tail = encoder.encode("\nendobj\n");
-    chunks.push(head, body, tail);
-    length += head.length + body.length + tail.length;
-  });
-
-  const xrefOffset = length;
-  const xref = [
-    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`,
-    offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join(""),
-    `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
-  ].join("");
-  chunks.push(encoder.encode(xref));
-
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  chunks.forEach((chunk) => {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  });
-  return result;
-}
-
-async function renderHtmlPageToJpeg(html: string) {
-  const width = 1240;
-  const height = 1754;
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-      <foreignObject width="100%" height="100%">
-        <div xmlns="http://www.w3.org/1999/xhtml">${html}</div>
-      </foreignObject>
-    </svg>
-  `;
-  const image = new Image();
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-  try {
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("PDF 이미지를 만들 수 없습니다."));
-      image.src = url;
-    });
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("PDF 캔버스를 만들 수 없습니다.");
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(image, 0, 0, width, height);
-    return dataUrlToBytes(canvas.toDataURL("image/jpeg", 0.95));
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
 function encodeBase64(value: string) {
   return btoa(unescape(encodeURIComponent(value)));
 }
@@ -1886,6 +1779,7 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     email: "finance@acme.co.kr",
   });
   const [activeParty, setActiveParty] = useState<"supplier" | "buyer">("supplier");
+  const [mobileTaxTab, setMobileTaxTab] = useState<"form" | "preview">("form");
   const [amountInput, setAmountInput] = useState("0");
   const [payment, setPayment] = useState({
     cash: "0",
@@ -2228,7 +2122,9 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
         <head>
           <style>
             body { font-family: Arial, 'Noto Sans KR', sans-serif; padding: 24px; color: #1f2937; }
-            .sheet { margin-bottom: 28px; }
+            .sheet { page-break-after: always; break-after: page; margin: 0; }
+            .sheet:last-child { page-break-after: avoid; break-after: avoid; }
+            @media print { body { padding: 0; } }
             table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 3px solid #3f4b63; }
             td { border: 1px solid #94a3b8; padding: 6px 8px; font-size: 12px; vertical-align: middle; word-break: break-word; }
             .title { text-align: center; }
@@ -2320,40 +2216,26 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
       </html>
     `;
 
-    const downloadTaxInvoicePdf = async () => {
-      const documentHtml = new DOMParser().parseFromString(printTarget, "text/html");
-      const styleText = documentHtml.querySelector("style")?.textContent ?? "";
-      const sheets = Array.from(documentHtml.querySelectorAll(".sheet")).map((sheet) => sheet.outerHTML);
-      const pageImages = await Promise.all(
-        sheets.map((sheet) =>
-          renderHtmlPageToJpeg(`
-            <style>
-              * { box-sizing: border-box; }
-              .pdf-page {
-                width: 1240px;
-                height: 1754px;
-                padding: 92px 76px;
-                background: #ffffff;
-                font-family: Arial, 'Noto Sans KR', sans-serif;
-                color: #1f2937;
-              }
-              ${styleText}
-              .sheet { width: 100%; margin: 0; }
-              table { width: 100%; }
-            </style>
-            <div class="pdf-page">${sheet}</div>
-          `),
-        ),
-      );
-
-      const filename = `${invoiceKind === "tax" ? "tax-invoice" : "invoice"}-${invoiceDate}.pdf`;
-      downloadBytes(filename, buildImagePdf(pageImages), "application/pdf");
+    const downloadTaxInvoicePdf = () => {
+      const win = window.open("", "_blank");
+      if (!win) {
+        alert("팝업이 차단되었습니다. 팝업을 허용한 후 다시 시도해주세요.");
+        return;
+      }
+      const printHtml = printTarget.replace("</body>", "<script>window.onload=function(){window.print();}<\/script></body>");
+      win.document.write(printHtml);
+      win.document.close();
+      win.focus();
     };
 
     return (
       <section className="detail-card workbench-card tax-invoice-workbench">
+        <div className="tax-mobile-tabs">
+          <button type="button" className={`tax-mobile-tab ${mobileTaxTab === "form" ? "is-active" : ""}`} onClick={() => setMobileTaxTab("form")}>입력 양식</button>
+          <button type="button" className={`tax-mobile-tab ${mobileTaxTab === "preview" ? "is-active" : ""}`} onClick={() => setMobileTaxTab("preview")}>미리보기</button>
+        </div>
         <div className="tax-invoice-layout">
-          <div className="tax-invoice-form-column">
+          <div className={`tax-invoice-form-column${mobileTaxTab === "preview" ? " tax-mobile-hidden" : ""}`}>
             <section className="tax-panel">
               <h3>기본 설정</h3>
               <div className="form-grid tax-form-grid tax-basic-grid">
@@ -2522,7 +2404,7 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
             </section>
 
             <div className="tool-actions-row tax-invoice-actions">
-              <button type="button" className="primary-action" onClick={() => void downloadTaxInvoicePdf()}>
+              <button type="button" className="primary-action" onClick={downloadTaxInvoicePdf}>
                 <Printer size={16} />
                 PDF로 인쇄하기 (공급자/공급받는자용)
               </button>
@@ -2533,10 +2415,10 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
             </div>
           </div>
 
-          <aside className="tax-invoice-preview-column">
+          <aside className={`tax-invoice-preview-column${mobileTaxTab === "form" ? " tax-mobile-hidden" : ""}`}>
             <div className="tax-preview-head">
               <h3>미리보기</h3>
-              <button type="button" className="primary-action tax-print-button" onClick={() => void downloadTaxInvoicePdf()}>
+              <button type="button" className="primary-action tax-print-button" onClick={downloadTaxInvoicePdf}>
                 <Printer size={16} />
                 PDF로 인쇄하기
               </button>
