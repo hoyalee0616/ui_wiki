@@ -3146,6 +3146,10 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     );
   }
 
+  if (toolId === "qr-code") {
+    return <QrCodeTool />;
+  }
+
   if (toolId === "annual-calendar") {
     const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1));
     return (
@@ -3223,4 +3227,169 @@ export function ToolWorkbench({
   if (sectionId === "real-estate") return <RealEstateTools toolId={toolId} />;
   if (sectionId === "business-calculators") return <BusinessCalculators toolId={toolId} />;
   return <BusinessDocuments toolId={toolId} toolName={toolName} />;
+}
+
+/* ── QR Code Tool ─────────────────────────────────────────── */
+type QrType = "url" | "text" | "tel" | "email" | "wifi";
+
+function QrColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="field-block">
+      <span>{label}</span>
+      <div className="qr-color-input">
+        <span className="qr-color-swatch-btn" style={{ background: value }}>
+          <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="qr-color-picker" />
+        </span>
+        <input className="tool-input" value={value} onChange={(event) => onChange(event.target.value)} style={{ fontFamily: "monospace", fontSize: 13 }} />
+      </div>
+    </label>
+  );
+}
+
+function QrCodeTool() {
+  const [qrType, setQrType] = useState<QrType>("url");
+  const [inputVal, setInputVal] = useState("https://");
+  const [wifiSsid, setWifiSsid] = useState("");
+  const [wifiPass, setWifiPass] = useState("");
+  const [wifiSec, setWifiSec] = useState<"WPA" | "WEP" | "nopass">("WPA");
+  const [size, setSize] = useState(256);
+  const [margin, setMargin] = useState(2);
+  const [darkColor, setDarkColor] = useState("#000000");
+  const [lightColor, setLightColor] = useState("#ffffff");
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const qrValue = (() => {
+    if (qrType === "wifi") return `WIFI:T:${wifiSec};S:${wifiSsid};P:${wifiPass};;`;
+    if (qrType === "tel") return inputVal.startsWith("tel:") ? inputVal : `tel:${inputVal}`;
+    if (qrType === "email") return inputVal.startsWith("mailto:") ? inputVal : `mailto:${inputVal}`;
+    return inputVal;
+  })();
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    import("qrcode").then((QRCodeModule) => {
+      const QRCode = ("default" in QRCodeModule ? QRCodeModule.default : QRCodeModule) as typeof QRCodeModule;
+      QRCode.toCanvas(canvas, qrValue || " ", {
+        width: size,
+        margin,
+        color: { dark: darkColor, light: lightColor },
+        errorCorrectionLevel: "M",
+      }).then(() => {
+        setDataUrl(canvas.toDataURL("image/png"));
+      }).catch(() => setDataUrl(null));
+    });
+  }, [qrValue, size, margin, darkColor, lightColor]);
+
+  const download = () => {
+    if (!dataUrl) return;
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = "qrcode.png";
+    a.click();
+  };
+
+  const TYPE_LABELS: Record<QrType, string> = {
+    url: "URL",
+    text: "텍스트",
+    tel: "전화번호",
+    email: "이메일",
+    wifi: "Wi-Fi",
+  };
+
+  const placeholder: Record<QrType, string> = {
+    url: "https://example.com",
+    text: "전달할 텍스트를 입력하세요",
+    tel: "010-1234-5678",
+    email: "hello@example.com",
+    wifi: "",
+  };
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head">
+        <strong>QR코드 생성기</strong>
+        <span>URL, 텍스트, 연락처, Wi-Fi를 QR코드로 즉시 생성</span>
+      </div>
+
+      <div className="qr-layout">
+        <div className="qr-form-col">
+          <div className="field-block">
+            <span>유형</span>
+            <div className="qr-type-tabs">
+              {(Object.keys(TYPE_LABELS) as QrType[]).map((t) => (
+                <button key={t} type="button" className={`qr-type-tab ${qrType === t ? "is-active" : ""}`}
+                  onClick={() => { setQrType(t); if (t === "url") setInputVal("https://"); else if (t !== "wifi") setInputVal(""); }}>
+                  {TYPE_LABELS[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {qrType === "wifi" ? (
+            <>
+              <label className="field-block"><span>SSID (Wi-Fi 이름)</span>
+                <input className="tool-input" value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} placeholder="MyNetwork" />
+              </label>
+              <label className="field-block"><span>비밀번호</span>
+                <input className="tool-input" type="password" value={wifiPass} onChange={(e) => setWifiPass(e.target.value)} placeholder="password" />
+              </label>
+              <div className="field-block">
+                <span>보안 방식</span>
+                <div className="qr-type-tabs" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+                  {(["WPA", "WEP", "nopass"] as const).map((s) => (
+                    <button key={s} type="button" className={`qr-type-tab ${wifiSec === s ? "is-active" : ""}`} onClick={() => setWifiSec(s)}>
+                      {s === "nopass" ? "없음" : s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <label className="field-block"><span>내용</span>
+              <input className="tool-input" value={inputVal} onChange={(e) => setInputVal(e.target.value)} placeholder={placeholder[qrType]} />
+            </label>
+          )}
+
+          <div className="qr-divider" />
+
+          <label className="field-block">
+            <span>크기 ({size}px)</span>
+            <input type="range" min={128} max={512} step={32} value={size} onChange={(e) => setSize(Number(e.target.value))} className="qr-range" />
+          </label>
+          <label className="field-block">
+            <span>여백 ({margin})</span>
+            <input type="range" min={0} max={6} step={1} value={margin} onChange={(e) => setMargin(Number(e.target.value))} className="qr-range" />
+          </label>
+
+          <div className="qr-color-row">
+            <QrColorField label="QR 색상" value={darkColor} onChange={setDarkColor} />
+            <QrColorField label="배경 색상" value={lightColor} onChange={setLightColor} />
+          </div>
+        </div>
+
+        <div className="qr-preview-col">
+          <div className="qr-preview-box">
+            <canvas ref={canvasRef} width={size} height={size} className="qr-canvas" />
+          </div>
+          <div className="qr-btn-row">
+            <button type="button" className="qr-btn-primary" onClick={download}>
+              <Download size={16} /> PNG 다운로드
+            </button>
+            <button type="button" className="qr-btn-secondary" onClick={() => {
+              if (!canvasRef.current) return;
+              canvasRef.current.toBlob((blob) => {
+                if (!blob) return;
+                void navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+              });
+            }}>
+              <Copy size={16} /> 이미지 복사
+            </button>
+          </div>
+          <p className="qr-meta">오류 정정 레벨 M (약 15% 복구)</p>
+        </div>
+      </div>
+    </section>
+  );
 }
