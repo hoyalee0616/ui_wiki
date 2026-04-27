@@ -2749,11 +2749,11 @@ button {
 
 .tax-invoice-layout {
   display: grid;
-  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
   align-items: start;
-  gap: 22px;
+  gap: 20px;
   min-width: 0;
-  padding: 22px;
+  padding: 20px;
 }
 
 .tax-invoice-form-column,
@@ -3536,45 +3536,6 @@ button {
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
 }
 
-@media (max-width: 1380px) {
-  /* 사이드바(320px) + 콘텐츠가 좁아지면 세금계산서 단열 */
-  .tax-invoice-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .tax-mobile-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    padding: 14px 14px 0;
-  }
-
-  .tax-mobile-tab {
-    height: 46px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 0 14px;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: var(--surface);
-    font-weight: 700;
-    font-size: 15px;
-    color: var(--text-secondary);
-  }
-
-  .tax-mobile-tab.is-active {
-    background: var(--text-primary);
-    border-color: var(--text-primary);
-    color: #ffffff;
-  }
-
-  .tax-mobile-hidden {
-    display: none !important;
-  }
-}
-
 @media (max-width: 1399px) {
   .email-sig-layout {
     grid-template-columns: 1fr;
@@ -3723,7 +3684,6 @@ button {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .tax-invoice-layout,
   .markdown-table-grid,
   .tool-detail-hero,
   .tool-detail-grid,
@@ -3734,6 +3694,45 @@ button {
   .process-grid,
   .metrics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tax-invoice-layout {
+    grid-template-columns: 1fr;
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .tax-mobile-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 14px 14px 0;
+  }
+
+  .tax-mobile-tab {
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .tax-mobile-tab.is-active {
+    background: var(--text-primary);
+    border-color: var(--text-primary);
+    color: #ffffff;
+  }
+
+  .tax-mobile-hidden {
+    display: none !important;
   }
 
   .workbench-head,
@@ -4006,11 +4005,6 @@ button {
 
   .tax-invoice-workbench {
     border-radius: 18px;
-  }
-
-  .tax-invoice-layout {
-    gap: 14px;
-    padding: 14px;
   }
 
   .tax-invoice-form-column {
