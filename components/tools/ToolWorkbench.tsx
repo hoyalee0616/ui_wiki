@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode, type SetStateAction } from "react";
-import { Copy, Download, Plus, Printer, RotateCcw, Upload } from "lucide-react";
+import { Copy, Download, Plus, Printer, RotateCcw, Search, Upload } from "lucide-react";
 import type { ToolSectionId } from "@/data/tools";
+import { specialChars, specialCharCategories, emojiData, emojiCategories } from "@/data/charData";
 
 function formatNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("ko-KR", {
@@ -114,7 +115,7 @@ function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = sanitizeDownloadName(filename);
   link.rel = "noopener";
   link.style.display = "none";
   document.body.appendChild(link);
@@ -122,7 +123,16 @@ function downloadBlob(filename: string, blob: Blob) {
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
     link.remove();
-  }, 1000);
+  }, 60000);
+}
+
+function sanitizeDownloadName(filename: string) {
+  return filename
+    .normalize("NFC")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180) || "download";
 }
 
 const markdownExample = [
@@ -185,6 +195,245 @@ function getDocumentDefaultText(toolId: string) {
   return toolId === "romanization" ? romanizationExample : markdownExample;
 }
 
+type PdfJsModule = {
+  version: string;
+  GlobalWorkerOptions: { workerSrc?: string };
+  SVGGraphics: new (commonObjs: unknown, objs: unknown) => {
+    embedFonts: boolean;
+    getSVG(operatorList: unknown, viewport: unknown): Promise<SVGSVGElement>;
+  };
+  getDocument(options: {
+    data: Uint8Array;
+    disableAutoFetch?: boolean;
+    disableFontFace?: boolean;
+    disableStream?: boolean;
+    isEvalSupported?: boolean;
+    stopAtErrors?: boolean;
+    useSystemFonts?: boolean;
+  }): {
+    promise: Promise<{
+      numPages: number;
+        getPage(pageNumber: number): Promise<{
+          commonObjs: unknown;
+          objs: unknown;
+          cleanup?: () => void;
+          getOperatorList(): Promise<unknown>;
+          getViewport(options: { scale: number }): { width: number; height: number };
+          render(options: { canvasContext: CanvasRenderingContext2D; viewport: unknown }): { promise: Promise<void> };
+      }>;
+      destroy?: () => Promise<void>;
+    }>;
+  };
+};
+
+declare global {
+  interface Window {
+    pdfjsLib?: PdfJsModule;
+  }
+}
+
+const PDFJS_CDN_VERSION = "3.11.174";
+let pdfJsLoader: Promise<PdfJsModule> | null = null;
+
+function loadScriptOnce(src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
+    if (existing?.dataset.loaded === "true") {
+      resolve();
+      return;
+    }
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("PDF.js 로드 실패")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.dataset.src = src;
+    script.addEventListener("load", () => {
+      script.dataset.loaded = "true";
+      resolve();
+    }, { once: true });
+    script.addEventListener("error", () => reject(new Error("PDF.js 로드 실패")), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+async function loadPdfJs() {
+  if (window.pdfjsLib?.SVGGraphics) return window.pdfjsLib;
+  pdfJsLoader ??= loadScriptOnce(`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_CDN_VERSION}/pdf.min.js`).then(() => {
+    if (!window.pdfjsLib?.SVGGraphics) {
+      throw new Error("PDF.js SVG 변환 엔진을 찾을 수 없습니다.");
+    }
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_CDN_VERSION}/pdf.worker.min.js`;
+    return window.pdfjsLib;
+  });
+  return pdfJsLoader;
+}
+
+function getFileExtension(name: string) {
+  return name.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function preparePdfLikeBytes(file: File, buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const sample = new TextDecoder("latin1").decode(bytes.slice(0, Math.min(bytes.length, 8192)));
+  const extension = getFileExtension(file.name);
+  const pdfOffset = sample.indexOf("%PDF-");
+
+  if (!["ai", "pdf"].includes(extension)) {
+    throw new Error("AI 또는 PDF 파일만 변환할 수 있습니다.");
+  }
+
+  if (pdfOffset === -1) {
+    if (extension === "ai") {
+      throw new Error(
+        "이 AI 파일은 PDF 호환 데이터가 없는 Illustrator 전용 파일입니다. Illustrator에서 'Create PDF Compatible File' 옵션으로 다시 저장하거나 Inkscape 같은 서버/데스크톱 변환기가 필요합니다.",
+      );
+    }
+    throw new Error("PDF 헤더를 찾지 못했습니다. 파일이 손상되었거나 지원하지 않는 형식입니다.");
+  }
+
+  return pdfOffset > 0 ? bytes.slice(pdfOffset) : bytes;
+}
+
+function serializeSvg(svgElement: SVGSVGElement, title: string) {
+  svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  svgElement.setAttribute("role", "img");
+  svgElement.querySelectorAll("script").forEach((node) => node.remove());
+  const existingTitle = svgElement.querySelector("title");
+  if (existingTitle) {
+    existingTitle.textContent = title;
+  } else {
+    const titleElement = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    titleElement.textContent = title;
+    svgElement.prepend(titleElement);
+  }
+  return sanitizeSvgMarkup(new XMLSerializer().serializeToString(svgElement));
+}
+
+function sanitizeSvgMarkup(svg: string) {
+  return svg
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, "")
+    .replace(/\s+(href|xlink:href)\s*=\s*(['"])\s*javascript:[\s\S]*?\2/gi, "")
+    .replace(/<\?xml[\s\S]*?\?>/gi, "")
+    .trim();
+}
+
+function readSvgSize(svg: string) {
+  const viewBox = svg.match(/viewBox=["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)\s*["']/i);
+  if (viewBox) {
+    return { width: Math.round(Number(viewBox[1])), height: Math.round(Number(viewBox[2])) };
+  }
+
+  const width = svg.match(/\swidth=["']([\d.]+)/i);
+  const height = svg.match(/\sheight=["']([\d.]+)/i);
+  return {
+    width: Math.round(Number(width?.[1] ?? 0)) || 1024,
+    height: Math.round(Number(height?.[1] ?? 0)) || 1024,
+  };
+}
+
+function extractSvgInner(svg: string) {
+  return svg
+    .replace(/^[\s\S]*?<svg\b[^>]*>/i, "")
+    .replace(/<\/svg>\s*$/i, "")
+    .trim();
+}
+
+function buildMultiPageSvg(pages: { index: number; svg: string; width: number; height: number }[], title: string) {
+  const gap = 80;
+  const maxWidth = Math.max(...pages.map((page) => page.width));
+  const totalHeight = pages.reduce((sum, page) => sum + page.height, 0) + gap * Math.max(0, pages.length - 1);
+  let y = 0;
+  const body = pages
+    .map((page) => {
+      const x = Math.round((maxWidth - page.width) / 2);
+      const content = extractSvgInner(page.svg);
+      const block = `<svg x="${x}" y="${y}" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}">${content}</svg>`;
+      y += page.height + gap;
+      return block;
+    })
+    .join("\n");
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" role="img" width="${maxWidth}" height="${totalHeight}" viewBox="0 0 ${maxWidth} ${totalHeight}">`,
+    `<title>${escapeHtml(title)}</title>`,
+    body,
+    "</svg>",
+  ].join("\n");
+}
+
+async function convertAiWithServer(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/api/ai-to-svg", {
+    method: "POST",
+    body: formData,
+  });
+  const payload = await response.json().catch(() => null) as null | {
+    svg?: string;
+    engine?: string;
+    message?: string;
+    code?: string;
+  };
+
+  if (!response.ok || !payload?.svg) {
+    const error = new Error(payload?.message ?? "서버 변환에 실패했습니다.");
+    error.name = payload?.code ?? "server_convert_failed";
+    throw error;
+  }
+
+  const svg = sanitizeSvgMarkup(payload.svg);
+  const size = readSvgSize(svg);
+  return {
+    index: 1,
+    svg,
+    width: size.width,
+    height: size.height,
+    mode: "server" as const,
+    engine: payload.engine ?? "Inkscape",
+  };
+}
+
+async function renderPageAsImageSvg(
+  page: {
+    getViewport(options: { scale: number }): { width: number; height: number };
+    render(options: { canvasContext: CanvasRenderingContext2D; viewport: unknown }): { promise: Promise<void> };
+  },
+  viewport: { width: number; height: number },
+  title: string,
+) {
+  const scale = Math.min(2, Math.max(1, 1400 / Math.max(viewport.width, viewport.height)));
+  const renderViewport = page.getViewport({ scale });
+  const width = Math.max(1, Math.round(renderViewport.width));
+  const height = Math.max(1, Math.round(renderViewport.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const canvasContext = canvas.getContext("2d");
+  if (!canvasContext) {
+    throw new Error("브라우저 캔버스 렌더러를 사용할 수 없습니다.");
+  }
+  await page.render({
+    canvasContext,
+    viewport: renderViewport,
+  }).promise;
+
+  const dataUrl = canvas.toDataURL("image/png");
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" role="img" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    `<title>${escapeHtml(title)}</title>`,
+    `<image href="${dataUrl}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet"/>`,
+    "</svg>",
+  ].join("");
+}
+
 type MarkdownViewMode = "split" | "editor" | "preview";
 
 function TaxPreviewScaleFrame({ children }: { children: ReactNode }) {
@@ -225,12 +474,13 @@ function TaxPreviewScaleFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function escapeHtml(value: string) {
-  return value
+function escapeHtml(value: string | number) {
+  return String(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function renderInlineMarkdown(value: string) {
@@ -622,6 +872,25 @@ type TaxInvoiceLine = {
   note: string;
 };
 
+type EstimateDocMode = "invoice" | "estimate";
+
+type EstimateParty = {
+  companyName: string;
+  businessNumber: string;
+  representative: string;
+  phone: string;
+  email: string;
+  logoUrl: string;
+  address: string;
+};
+
+type EstimateLine = {
+  id: string;
+  itemName: string;
+  quantity: string;
+  unitPrice: string;
+};
+
 const initials = [
   "g",
   "kk",
@@ -721,27 +990,6 @@ function generateDummyText(paragraphs: number) {
     `${samples[index % samples.length]} ${samples[(index + 1) % samples.length]}`,
   ).join("\n\n");
 }
-
-const emojiLibrary = [
-  { symbol: "✓", keywords: ["체크", "완료", "check"] },
-  { symbol: "→", keywords: ["화살표", "이동", "arrow"] },
-  { symbol: "★", keywords: ["별", "중요", "star"] },
-  { symbol: "☆", keywords: ["빈별", "즐겨찾기", "favorite"] },
-  { symbol: "•", keywords: ["불릿", "목록", "bullet"] },
-  { symbol: "◆", keywords: ["다이아", "강조", "diamond"] },
-  { symbol: "■", keywords: ["사각형", "블록", "square"] },
-  { symbol: "△", keywords: ["삼각형", "주의", "triangle"] },
-  { symbol: "☎", keywords: ["전화", "연락", "phone"] },
-  { symbol: "✉", keywords: ["메일", "이메일", "email"] },
-  { symbol: "©", keywords: ["저작권", "copyright"] },
-  { symbol: "™", keywords: ["상표", "trademark"] },
-  { symbol: "🙂", keywords: ["웃음", "스마일", "smile"] },
-  { symbol: "🔥", keywords: ["불", "핫", "fire"] },
-  { symbol: "📄", keywords: ["문서", "파일", "document"] },
-  { symbol: "📌", keywords: ["핀", "고정", "pin"] },
-  { symbol: "📎", keywords: ["첨부", "클립", "attach"] },
-  { symbol: "💡", keywords: ["아이디어", "팁", "idea"] },
-];
 
 const converterSets = {
   length: { mm: 1, cm: 10, m: 1000, km: 1000000 },
@@ -863,6 +1111,12 @@ function DocumentTools({ toolId }: { toolId: string }) {
   const [slugCopied, setSlugCopied] = useState<string | null>(null);
   const [romanStyle, setRomanStyle] = useState<"standard" | "name">("standard");
   const [romanCase, setRomanCase] = useState<"word" | "first" | "lower" | "upper">("word");
+  const [charType, setCharType] = useState<"special" | "emoji">("special");
+  const [charCategory, setCharCategory] = useState("all");
+  const [charSearch, setCharSearch] = useState("");
+  const [recentChars, setRecentChars] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("recentChars") ?? "[]") as string[]; } catch { return []; }
+  });
   const [tableData, setTableData] = useState(() => createMarkdownTableData(3, 3));
   const [tableAligns, setTableAligns] = useState<MarkdownTableAlign[]>(() => Array.from({ length: 3 }, () => "left"));
   const [csvInput, setCsvInput] = useState("");
@@ -873,13 +1127,6 @@ function DocumentTools({ toolId }: { toolId: string }) {
   const markdownTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const markdownFileInputRef = useRef<HTMLInputElement | null>(null);
   const tableManualCopyRef = useRef<HTMLTextAreaElement | null>(null);
-  const keyword = text.trim().toLowerCase();
-  const filteredEmoji = emojiLibrary.filter(
-    (item) =>
-      !keyword ||
-      item.symbol.includes(keyword) ||
-      item.keywords.some((entry) => entry.toLowerCase().includes(keyword)),
-  );
   const header = tableData[0] ?? [];
   const body = tableData.slice(1);
   const divider = tableAligns.map((align) => (align === "center" ? ":---:" : align === "right" ? "---:" : ":---"));
@@ -1455,19 +1702,90 @@ function DocumentTools({ toolId }: { toolId: string }) {
     );
   }
 
+  // special-emoji fallback
+  const handleCopyChar = async (symbol: string) => {
+    await copyText(symbol);
+    setRecentChars((prev) => {
+      const next = [symbol, ...prev.filter((s) => s !== symbol)].slice(0, 20);
+      try { localStorage.setItem("recentChars", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const library = charType === "special" ? specialChars : emojiData;
+  const categories = charType === "special" ? specialCharCategories : emojiCategories;
+  const q = charSearch.trim().toLowerCase();
+  const filtered = library.filter((item) => {
+    if (charCategory !== "all" && item.category !== charCategory) return false;
+    if (!q) return true;
+    return item.symbol.includes(q) || item.name.includes(q) || item.keywords.some((k) => k.includes(q));
+  });
+
   return (
-    <section className="detail-card workbench-card">
-      <div className="workbench-head"><strong>특수문자/이모지</strong><span>검색 후 즉시 복사</span></div>
-      <input className="tool-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="문자나 키워드를 입력하세요" />
-      <div className="emoji-grid">
-        {filteredEmoji.map((item) => (
-          <button key={item.symbol} type="button" className="emoji-tile" onClick={() => copyText(item.symbol)}>
-            {item.symbol}
-          </button>
-        ))}
+    <div className="char-workbench detail-card">
+      {/* Top bar: search + recent */}
+      <div className="char-top-bar">
+        <div className="char-search-box">
+          <Search size={15} className="char-search-icon" />
+          <input
+            className="char-search-input"
+            value={charSearch}
+            onChange={(e) => setCharSearch(e.target.value)}
+            placeholder="검색어 입력 (예: 화살표, heart, 별, check...)"
+          />
+          {charSearch && (
+            <button type="button" className="char-search-clear" onClick={() => setCharSearch("")}>✕</button>
+          )}
+        </div>
+        {recentChars.length > 0 && (
+          <div className="char-recent-row">
+            <span className="char-recent-label">최근</span>
+            {recentChars.slice(0, 12).map((sym) => (
+              <button key={sym} type="button" className="char-tile char-tile--recent" onClick={() => void handleCopyChar(sym)} title={sym}>
+                {sym}
+              </button>
+            ))}
+            <button type="button" className="char-recent-clear" onClick={() => { setRecentChars([]); localStorage.removeItem("recentChars"); }}>지우기</button>
+          </div>
+        )}
       </div>
-      {filteredEmoji.length === 0 ? <p className="field-help">검색어와 일치하는 특수문자가 없습니다.</p> : null}
-    </section>
+
+      {/* Type tabs + category filter */}
+      <div className="char-filter-bar">
+        <div className="char-type-tabs">
+          <button type="button" className={`char-type-tab${charType === "special" ? " is-active" : ""}`} onClick={() => { setCharType("special"); setCharCategory("all"); }}>
+            특수문자 <span className="char-count">{specialChars.length}</span>
+          </button>
+          <button type="button" className={`char-type-tab${charType === "emoji" ? " is-active" : ""}`} onClick={() => { setCharType("emoji"); setCharCategory("all"); }}>
+            이모지 <span className="char-count">{emojiData.length}</span>
+          </button>
+        </div>
+        <div className="char-cat-bar">
+          {categories.map((cat) => (
+            <button key={cat.id} type="button" className={`char-cat-btn${charCategory === cat.id ? " is-active" : ""}`} onClick={() => setCharCategory(cat.id)}>
+              {cat.icon && <span>{cat.icon}</span>}
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Scrollable grid */}
+      <div className="char-grid-scroll">
+        {filtered.length === 0 ? (
+          <p className="char-empty">검색 결과가 없습니다.</p>
+        ) : (
+          <div className="char-grid">
+            {filtered.map((item) => (
+              <button key={item.symbol + item.name} type="button" className="char-tile" onClick={() => void handleCopyChar(item.symbol)} title={`${item.symbol} — ${item.name}`}>
+                <span className="char-tile-sym">{item.symbol}</span>
+                <span className="char-tile-name">{item.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1675,6 +1993,298 @@ function PdfTools({ toolId }: { toolId: string }) {
   );
 }
 
+function AiToSvgTool() {
+  const [file, setFile] = useState<File | null>(null);
+  const [pages, setPages] = useState<{ index: number; svg: string; width: number; height: number; mode: "server" | "vector" | "image"; engine?: string }[]>([]);
+  const [selectedPage, setSelectedPage] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [downloadStatus, setDownloadStatus] = useState("");
+  const [sourceNote, setSourceNote] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const convertFile = async (f: File) => {
+    setFile(f);
+    setPages([]);
+    setError(null);
+    setCopyStatus("");
+    setDownloadStatus("");
+    setSourceNote("");
+    setLoading(true);
+    setProgress("AI 변환 엔진 확인 중...");
+    try {
+      const extension = getFileExtension(f.name);
+      if (!["ai", "eps"].includes(extension)) {
+        throw new Error("AI 또는 EPS 파일만 업로드해 주세요.");
+      }
+
+      try {
+        setProgress("Inkscape로 AI/EPS 직접 변환 중...");
+        const converted = await convertAiWithServer(f);
+        setPages([converted]);
+        setSelectedPage(0);
+        setSourceNote(`${converted.engine}로 AI/EPS 파일을 SVG로 직접 변환했습니다.`);
+        return;
+      } catch (serverError) {
+        const code = serverError instanceof Error ? serverError.name : "";
+        if (code !== "missing_inkscape") {
+          throw serverError;
+        }
+        if (extension === "eps") {
+          throw new Error("EPS 파일은 서버의 Inkscape 변환기가 필요합니다. 서버에 Inkscape를 설치하거나 INKSCAPE_BIN 경로를 설정해 주세요.");
+        }
+        setSourceNote("서버에 Inkscape가 없어 브라우저 보조 변환을 시도합니다. 이 방식은 일부 AI 파일에서만 동작합니다.");
+      }
+
+      const pdfjs = await loadPdfJs();
+      setProgress("AI 파일 내부 보조 데이터 확인 중...");
+      const buffer = await f.arrayBuffer();
+      const pdfBytes = preparePdfLikeBytes(f, buffer);
+
+      setProgress("벡터 데이터 파싱 중...");
+      const loadingTask = pdfjs.getDocument({
+        data: pdfBytes,
+        disableAutoFetch: true,
+        disableFontFace: false,
+        disableStream: true,
+        isEvalSupported: false,
+        stopAtErrors: false,
+        useSystemFonts: true,
+      });
+      const pdf = await loadingTask.promise;
+
+      if (pdf.numPages < 1) {
+        throw new Error("변환할 페이지를 찾지 못했습니다.");
+      }
+
+      const result: { index: number; svg: string; width: number; height: number; mode: "vector" | "image" }[] = [];
+      let fallbackCount = 0;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        setProgress(`SVG 생성 중... (${i}/${pdf.numPages})`);
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1 });
+
+        try {
+          const opList = await page.getOperatorList();
+          const svgGfx = new pdfjs.SVGGraphics(page.commonObjs, page.objs);
+          svgGfx.embedFonts = true;
+          const svgElement: SVGSVGElement = await svgGfx.getSVG(opList, viewport);
+          const svgStr = serializeSvg(svgElement, `${f.name} ${i}페이지`);
+          result.push({
+            index: i,
+            svg: svgStr,
+            width: Math.round(viewport.width),
+            height: Math.round(viewport.height),
+            mode: "vector",
+          });
+        } catch {
+          fallbackCount += 1;
+          setProgress(`벡터 변환 실패 페이지 이미지 SVG로 복구 중... (${i}/${pdf.numPages})`);
+          const svgStr = await renderPageAsImageSvg(page, viewport, `${f.name} ${i}페이지`);
+          const widthMatch = svgStr.match(/width="(\d+)"/);
+          const heightMatch = svgStr.match(/height="(\d+)"/);
+          result.push({
+            index: i,
+            svg: svgStr,
+            width: Number(widthMatch?.[1] ?? Math.round(viewport.width)),
+            height: Number(heightMatch?.[1] ?? Math.round(viewport.height)),
+            mode: "image",
+          });
+        }
+        page.cleanup?.();
+      }
+
+      await pdf.destroy?.();
+      setPages(result);
+      setSelectedPage(0);
+      setSourceNote(
+        fallbackCount > 0
+          ? `${result.length}개 결과 생성. ${fallbackCount}개는 브라우저 렌더러 한계로 이미지 기반 SVG로 복구했습니다.`
+          : `${result.length}개 결과를 브라우저 보조 벡터 변환으로 생성했습니다.`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setLoading(false);
+      setProgress("");
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) void convertFile(f);
+  };
+
+  const handleDownload = (svgStr: string, pageIndex: number) => {
+    const baseName = file?.name.replace(/\.(ai|eps|pdf)$/i, "") ?? "output";
+    const name = pages.length > 1 ? `${baseName}_p${pageIndex + 1}.svg` : `${baseName}.svg`;
+    downloadText(name, svgStr, "image/svg+xml");
+    setDownloadStatus(`${sanitizeDownloadName(name)} 다운로드를 시작했습니다.`);
+    window.setTimeout(() => setDownloadStatus(""), 2600);
+  };
+
+  const handleDownloadAll = () => {
+    if (pages.length === 0) return;
+    const baseName = file?.name.replace(/\.(ai|eps|pdf)$/i, "") ?? "output";
+    const name = `${baseName}_all.svg`;
+    const combinedSvg = buildMultiPageSvg(pages, `${baseName} 전체 페이지`);
+    downloadText(name, combinedSvg, "image/svg+xml");
+    setDownloadStatus(`${sanitizeDownloadName(name)} 하나로 묶어 다운로드를 시작했습니다.`);
+    window.setTimeout(() => setDownloadStatus(""), 2600);
+  };
+
+  const handleCopy = async (svgStr: string) => {
+    const copied = await copyText(svgStr);
+    setCopyStatus(copied ? "SVG 코드가 복사됐습니다." : "복사에 실패했습니다. 코드 보기를 열어 직접 복사해 주세요.");
+    window.setTimeout(() => setCopyStatus(""), 2200);
+  };
+
+  const current = pages[selectedPage];
+
+  return (
+    <section className="detail-card workbench-card ai-svg-layout">
+      <div className="workbench-head">
+        <strong>AI → SVG 변환기</strong>
+        <span>AI/EPS 파일을 SVG로 변환</span>
+      </div>
+
+      <div className="ai-svg-support-grid">
+        <div>
+          <strong>지원 방식</strong>
+          <span>서버에 Inkscape가 있으면 AI/EPS를 직접 SVG로 변환합니다.</span>
+        </div>
+        <div>
+          <strong>처리 위치</strong>
+          <span>우선 서버 오픈소스 엔진을 사용하고, 불가하면 브라우저 보조 변환을 시도합니다.</span>
+        </div>
+        <div>
+          <strong>주의</strong>
+          <span>서버에 Inkscape가 없으면 일부 AI 파일만 보조 변환됩니다.</span>
+        </div>
+      </div>
+
+      <div
+        className={`ai-svg-dropzone${dragging ? " is-dragging" : ""}${file && !loading ? " has-file" : ""}`}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => !loading && inputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && !loading && inputRef.current?.click()}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".ai,.eps,application/postscript,application/illustrator"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void convertFile(f); }}
+        />
+        {loading ? (
+          <div className="ai-svg-loading">
+            <span className="ai-svg-spinner" />
+            <span>{progress}</span>
+          </div>
+        ) : file && pages.length > 0 ? (
+          <div className="ai-svg-file-info">
+            <Upload size={26} />
+            <span>
+              <span className="ai-svg-file-name">{file.name}</span>
+              <span className="ai-svg-file-size">{pages.length}페이지 변환 완료 · 다른 파일을 클릭하여 교체</span>
+            </span>
+          </div>
+        ) : (
+          <>
+            <Upload size={34} />
+            <p className="ai-svg-drop-title">AI / EPS 파일을 드래그하거나 클릭하여 업로드</p>
+            <p className="ai-svg-drop-hint">Inkscape 기반 직접 변환을 먼저 시도합니다</p>
+          </>
+        )}
+      </div>
+
+      {sourceNote && !error && (
+        <div className="ai-svg-status">{sourceNote}</div>
+      )}
+
+      {error && (
+        <div className="ai-svg-error">
+          <strong>변환할 수 없습니다</strong>
+          <pre>{error}</pre>
+          <p className="ai-svg-error-tip">
+            가장 안정적인 오픈소스 경로는 Inkscape CLI 변환입니다. 서버 환경에 Inkscape가 있다면
+            <code> inkscape --export-plain-svg --export-filename=output.svg input.ai</code> 방식으로 순수 AI/EPS까지 처리할 수 있습니다.
+          </p>
+        </div>
+      )}
+
+      {pages.length > 0 && current && (
+        <div className="ai-svg-result detail-card">
+          <div className="ai-svg-result-head">
+            <div>
+              {pages.length > 1 && (
+                <div className="ai-svg-page-tabs">
+                  {pages.map((p, i) => (
+                    <button
+                      key={p.index}
+                      type="button"
+                      className={`ai-svg-page-tab${selectedPage === i ? " is-active" : ""}`}
+                      onClick={() => setSelectedPage(i)}
+                    >
+                      {p.index}p
+                    </button>
+                  ))}
+                </div>
+              )}
+              <span className="ai-svg-result-size">
+                {current.width}x{current.height} · {current.mode === "server" ? "AI 직접 변환" : current.mode === "vector" ? "보조 벡터" : "이미지 복구"} · {(new Blob([current.svg]).size / 1024).toFixed(1)} KB
+              </span>
+            </div>
+            <div className="ai-svg-result-actions">
+              <button type="button" className="ai-svg-btn-secondary" onClick={() => void handleCopy(current.svg)}>
+                <Copy size={15} /> 코드 복사
+              </button>
+              {pages.length > 1 && (
+                <button type="button" className="ai-svg-btn-secondary" onClick={handleDownloadAll}>
+                  <Download size={15} /> 전체 다운로드
+                </button>
+              )}
+              <button type="button" className="ai-svg-btn-primary" onClick={() => handleDownload(current.svg, selectedPage)}>
+                <Download size={15} /> SVG 다운로드
+              </button>
+            </div>
+          </div>
+          <div className="ai-svg-preview">
+            <div
+              className="ai-svg-canvas"
+              dangerouslySetInnerHTML={{ __html: current.svg }}
+            />
+          </div>
+          {(copyStatus || downloadStatus) && <div className="ai-svg-copy-status">{downloadStatus || copyStatus}</div>}
+          <details className="ai-svg-code-block">
+            <summary>SVG 코드 보기</summary>
+            <pre className="ai-svg-code">{current.svg.slice(0, 3000)}{current.svg.length > 3000 ? "\n…(truncated)" : ""}</pre>
+          </details>
+        </div>
+      )}
+
+      <div className="ai-svg-tips detail-card">
+        <h4>변환 방식 안내</h4>
+        <ul>
+          <li>AI/EPS 직접 변환은 서버의 Inkscape CLI를 사용합니다.</li>
+          <li>서버 변환기가 없을 때만 브라우저 보조 변환을 시도합니다.</li>
+          <li>텍스트, 마스크, 필터는 원본 제작 방식에 따라 SVG에서 모양이 달라질 수 있어 미리보기를 확인하세요.</li>
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 function ImageTools({ toolId }: { toolId: string }) {
   const [values, setValues] = useState({
     width: "1280",
@@ -1689,6 +2299,8 @@ function ImageTools({ toolId }: { toolId: string }) {
   const setValue = (key: string, value: string) => setValues((prev) => ({ ...prev, [key]: value }));
   const width = parseNumber(values.width);
   const height = parseNumber(values.height);
+
+  if (toolId === "ai-to-svg") return <AiToSvgTool />;
 
   if (toolId === "image-resizer") {
     const targetWidth = parseNumber(values.targetWidth);
@@ -2341,6 +2953,37 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
   const [stampTilt, setStampTilt] = useState<boolean>(true);
   const today = new Date();
   const defaultDate = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, "0")}-${`${today.getDate()}`.padStart(2, "0")}`;
+  const defaultEstimateSuffix = `${String(today.getFullYear()).slice(2)}${`${today.getMonth() + 1}`.padStart(2, "0")}${`${today.getDate()}`.padStart(2, "0")}`;
+  const [estimateMode, setEstimateMode] = useState<EstimateDocMode>("estimate");
+  const [estimateNumber, setEstimateNumber] = useState(`QT-${defaultEstimateSuffix}`);
+  const [estimateIssueDate, setEstimateIssueDate] = useState(defaultDate);
+  const [estimateDueDate, setEstimateDueDate] = useState("");
+  const [estimateValidUntil, setEstimateValidUntil] = useState("");
+  const [estimateSender, setEstimateSender] = useState<EstimateParty>({
+    companyName: "",
+    businessNumber: "123-45-67890",
+    representative: "홍길동",
+    phone: "02-1234-5678",
+    email: "email@company.com",
+    logoUrl: "",
+    address: "서울시 강남구 테헤란로 123",
+  });
+  const [estimateReceiver, setEstimateReceiver] = useState<EstimateParty>({
+    companyName: "",
+    businessNumber: "123-45-67890",
+    representative: "",
+    phone: "02-9876-5432",
+    email: "client@company.com",
+    logoUrl: "",
+    address: "서울시 서초구...",
+  });
+  const [estimateLines, setEstimateLines] = useState<EstimateLine[]>([
+    { id: "estimate-line-1", itemName: "", quantity: "1", unitPrice: "0" },
+  ]);
+  const [estimateTaxRate, setEstimateTaxRate] = useState("10");
+  const [estimateAccount, setEstimateAccount] = useState("은행명: 국민은행 계좌번호: 123-456-789012 예금주: (주)회사명");
+  const [estimateNote, setEstimateNote] = useState("");
+  const [estimateCopyStatus, setEstimateCopyStatus] = useState<string | null>(null);
   const [invoiceKind, setInvoiceKind] = useState<"tax" | "bill">("tax");
   const [invoiceDate, setInvoiceDate] = useState(defaultDate);
   const [writeMode, setWriteMode] = useState<"total" | "supply">("total");
@@ -2707,6 +3350,402 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     win.document.write(`<html><body style="font-family:sans-serif;padding:24px">${body}<script>window.onload=()=>window.print();<\/script></body></html>`);
     win.document.close();
   };
+
+  if (toolId === "estimate-builder") {
+    const docTitle = estimateMode === "estimate" ? "견적서" : "인보이스";
+    const docSubtitle = `${docTitle} 미리보기`;
+    const paymentLabel = estimateMode === "estimate" ? "결제기한" : "납부기한";
+    const formattedIssueDate = estimateIssueDate.replaceAll("-", ".");
+    const lineRows = estimateLines.map((line) => {
+      const quantity = Math.max(parseNumber(line.quantity || "0"), 0);
+      const unitPrice = parseNumber(line.unitPrice || "0");
+      return {
+        ...line,
+        quantity,
+        unitPrice,
+        amount: quantity * unitPrice,
+      };
+    });
+    const subtotal = lineRows.reduce((sum, line) => sum + line.amount, 0);
+    const taxRate = parseNumber(estimateTaxRate || "0");
+    const taxAmount = Math.round(subtotal * (taxRate / 100));
+    const grandTotal = subtotal + taxAmount;
+    const formatWon = (value: number) => `₩${formatNumber(value, 0)}`;
+    const displayPartyName = (party: EstimateParty) => party.companyName || party.representative || "-";
+    const senderDetails = [
+      estimateSender.businessNumber && `사업자번호 ${estimateSender.businessNumber}`,
+      estimateSender.representative && `대표 ${estimateSender.representative}`,
+      estimateSender.phone,
+      estimateSender.email,
+      estimateSender.address,
+    ].filter(Boolean);
+    const receiverDetails = [
+      estimateReceiver.businessNumber && `사업자번호 ${estimateReceiver.businessNumber}`,
+      estimateReceiver.representative && `담당 ${estimateReceiver.representative}`,
+      estimateReceiver.phone,
+      estimateReceiver.email,
+      estimateReceiver.address,
+    ].filter(Boolean);
+
+    const updateEstimateParty =
+      (target: "sender" | "receiver", field: keyof EstimateParty) =>
+      (value: string) => {
+        const setter = target === "sender" ? setEstimateSender : setEstimateReceiver;
+        setter((prev) => ({
+          ...prev,
+          [field]: field === "businessNumber" ? formatBusinessNumber(value) : value,
+        }));
+      };
+
+    const updateEstimateLine =
+      (id: string, field: keyof EstimateLine) =>
+      (value: string) => {
+        setEstimateLines((prev) =>
+          prev.map((line) =>
+            line.id === id
+              ? {
+                  ...line,
+                  [field]: field === "quantity" || field === "unitPrice" ? sanitizeCurrencyInput(value) : value,
+                }
+              : line,
+          ),
+        );
+      };
+
+    const switchEstimateMode = (mode: EstimateDocMode) => {
+      const nextPrefix = mode === "estimate" ? "QT" : "INV";
+      setEstimateMode(mode);
+      setEstimateNumber((prev) =>
+        /^(QT|INV)-/.test(prev)
+          ? prev.replace(/^(QT|INV)-/, `${nextPrefix}-`)
+          : `${nextPrefix}-${prev.replace(/^\D+/, "") || defaultEstimateSuffix}`,
+      );
+    };
+
+    const addEstimateLine = () => {
+      setEstimateLines((prev) => [
+        ...prev,
+        { id: `estimate-line-${Date.now()}`, itemName: "", quantity: "1", unitPrice: "0" },
+      ]);
+    };
+
+    const removeEstimateLine = (id: string) => {
+      setEstimateLines((prev) =>
+        prev.length === 1 ? prev : prev.filter((line) => line.id !== id),
+      );
+    };
+
+    const showEstimateStatus = (message: string) => {
+      setEstimateCopyStatus(message);
+      window.setTimeout(() => setEstimateCopyStatus(null), 2200);
+    };
+
+    const saveEstimateSender = () => {
+      localStorage.setItem("gomdol-estimate-sender", JSON.stringify(estimateSender));
+      showEstimateStatus("발행자 정보를 저장했습니다.");
+    };
+
+    const loadEstimateSender = () => {
+      const saved = localStorage.getItem("gomdol-estimate-sender");
+      if (!saved) {
+        showEstimateStatus("저장된 발행자 정보가 없습니다.");
+        return;
+      }
+
+      try {
+        setEstimateSender(JSON.parse(saved) as EstimateParty);
+        showEstimateStatus("발행자 정보를 불러왔습니다.");
+      } catch {
+        showEstimateStatus("저장된 정보를 읽지 못했습니다.");
+      }
+    };
+
+    const buildEstimateDocumentHtml = () => {
+      const rows = lineRows.length
+        ? lineRows
+            .map(
+              (line) => `
+                <tr>
+                  <td>${escapeHtml(line.itemName || "-")}</td>
+                  <td style="text-align:right">${escapeHtml(formatNumber(line.quantity, 0))}</td>
+                  <td style="text-align:right">${escapeHtml(formatWon(line.unitPrice))}</td>
+                  <td style="text-align:right">${escapeHtml(formatWon(line.amount))}</td>
+                </tr>
+              `,
+            )
+            .join("")
+        : `<tr><td colspan="4" style="text-align:center;color:#777;padding:20px">품목을 추가해주세요</td></tr>`;
+      const multiline = (value: string) => escapeHtml(value).replace(/\n/g, "<br />");
+
+      return `
+        <div class="estimate-doc" style="font-family:Arial,'Noto Sans KR',sans-serif;color:#111;max-width:760px;margin:0 auto;padding:36px;border:1px solid #e5e5e5;border-radius:12px;background:#fff">
+          <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:46px">
+            <div>
+              ${estimateSender.logoUrl ? `<img src="${escapeHtml(estimateSender.logoUrl)}" alt="" style="width:72px;height:72px;object-fit:contain;margin-bottom:18px" />` : ""}
+              <h1 style="font-size:34px;line-height:1.1;margin:0;font-weight:800">${escapeHtml(docTitle)}</h1>
+            </div>
+            <div style="text-align:right;color:#777;font-size:15px;line-height:1.7">
+              <div>문서번호: ${escapeHtml(estimateNumber)}</div>
+              <div>발행일: ${escapeHtml(estimateIssueDate)}</div>
+              ${estimateDueDate ? `<div>${escapeHtml(paymentLabel)}: ${escapeHtml(estimateDueDate)}</div>` : ""}
+              ${estimateValidUntil ? `<div>유효기간: ${escapeHtml(estimateValidUntil)}</div>` : ""}
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:44px;margin-bottom:46px">
+            <div>
+              <strong style="display:block;border-bottom:3px solid #111;padding-bottom:10px;margin-bottom:14px">발행자</strong>
+              <p style="margin:0 0 10px;font-size:18px;font-weight:700">${escapeHtml(displayPartyName(estimateSender))}</p>
+              <p style="margin:0;color:#555;line-height:1.7">${multiline(senderDetails.join("\n")) || "-"}</p>
+            </div>
+            <div>
+              <strong style="display:block;border-bottom:3px solid #111;padding-bottom:10px;margin-bottom:14px">수신자</strong>
+              <p style="margin:0 0 10px;font-size:18px;font-weight:700">${escapeHtml(displayPartyName(estimateReceiver))}</p>
+              <p style="margin:0;color:#555;line-height:1.7">${multiline(receiverDetails.join("\n")) || "-"}</p>
+            </div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:42px">
+            <thead>
+              <tr style="background:#f7f7f7">
+                <th style="text-align:left;padding:14px;border-bottom:1px solid #e5e5e5">품목</th>
+                <th style="text-align:right;padding:14px;border-bottom:1px solid #e5e5e5">수량</th>
+                <th style="text-align:right;padding:14px;border-bottom:1px solid #e5e5e5">단가</th>
+                <th style="text-align:right;padding:14px;border-bottom:1px solid #e5e5e5">금액</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="width:340px;margin-left:auto;font-size:16px">
+            <div style="display:flex;justify-content:space-between;padding:8px 0"><span>소계</span><span>${escapeHtml(formatWon(subtotal))}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0"><span>부가세 (${escapeHtml(taxRate)}%)</span><span>${escapeHtml(formatWon(taxAmount))}</span></div>
+            <div style="display:flex;justify-content:space-between;border-top:3px solid #111;margin-top:8px;padding-top:14px;font-weight:800;font-size:20px"><span>총액</span><span>${escapeHtml(formatWon(grandTotal))}</span></div>
+          </div>
+          ${(estimateAccount || estimateNote) ? `
+            <div style="margin-top:46px;color:#444;line-height:1.7">
+              ${estimateAccount ? `<strong>입금 계좌</strong><p style="margin:8px 0 18px">${multiline(estimateAccount)}</p>` : ""}
+              ${estimateNote ? `<strong>비고</strong><p style="margin:8px 0 0">${multiline(estimateNote)}</p>` : ""}
+            </div>
+          ` : ""}
+        </div>
+      `;
+    };
+
+    const copyEstimateHtml = async () => {
+      const html = buildEstimateDocumentHtml();
+      const plainText = `${docTitle} ${estimateNumber}\n총액 ${formatWon(grandTotal)}`;
+      const copied = await copyHtml(html, plainText);
+      showEstimateStatus(copied ? "HTML 문서를 복사했습니다." : "복사가 차단되었습니다. 다시 시도해주세요.");
+    };
+
+    const printEstimateDocument = () => {
+      const win = window.open("", "_blank", "width=900,height=1200");
+      if (!win) {
+        showEstimateStatus("팝업이 차단되었습니다.");
+        return;
+      }
+      win.document.write(`
+        <html>
+          <head>
+            <title>${escapeHtml(docTitle)} ${escapeHtml(estimateNumber)}</title>
+            <style>
+              @page { margin: 18mm; }
+              body { margin: 0; padding: 24px; background: #fff; }
+              @media print { body { padding: 0; } .estimate-doc { border: 0 !important; } }
+            </style>
+          </head>
+          <body>${buildEstimateDocumentHtml()}<script>window.onload=function(){window.print();}<\/script></body>
+        </html>
+      `);
+      win.document.close();
+      win.focus();
+    };
+
+    return (
+      <section className="estimate-workbench">
+        <div className="estimate-head">
+          <h2>견적서 생성기</h2>
+          <p>전문적인 견적서와 인보이스를 쉽게 만들어보세요</p>
+        </div>
+
+        <div className="estimate-mode-tabs">
+          <button type="button" className={estimateMode === "invoice" ? "is-active" : ""} onClick={() => switchEstimateMode("invoice")}>인보이스</button>
+          <button type="button" className={estimateMode === "estimate" ? "is-active" : ""} onClick={() => switchEstimateMode("estimate")}>견적서</button>
+        </div>
+
+        <div className="estimate-layout">
+          <div className="estimate-form-column">
+            <section className="estimate-panel">
+              <h3>{docTitle} 정보</h3>
+              <div className="estimate-form-grid">
+                <label className="field-block">
+                  <span>문서번호</span>
+                  <input value={estimateNumber} onChange={(e) => setEstimateNumber(e.target.value)} />
+                </label>
+                <label className="field-block">
+                  <span>발행일</span>
+                  <input type="date" value={estimateIssueDate} onChange={(e) => setEstimateIssueDate(e.target.value)} />
+                </label>
+                <label className="field-block">
+                  <span>{paymentLabel}</span>
+                  <input type="date" value={estimateDueDate} onChange={(e) => setEstimateDueDate(e.target.value)} />
+                </label>
+                <label className="field-block">
+                  <span>유효기간</span>
+                  <input type="date" value={estimateValidUntil} onChange={(e) => setEstimateValidUntil(e.target.value)} />
+                </label>
+              </div>
+            </section>
+
+            <section className="estimate-panel">
+              <div className="estimate-panel-head">
+                <h3>발행자 정보</h3>
+                <div className="estimate-mini-actions">
+                  <button type="button" onClick={loadEstimateSender}>불러오기</button>
+                  <button type="button" onClick={saveEstimateSender}>저장</button>
+                </div>
+              </div>
+              <div className="estimate-form-grid">
+                <label className="field-block"><span>회사명/이름</span><input value={estimateSender.companyName} onChange={(e) => updateEstimateParty("sender", "companyName")(e.target.value)} placeholder="(주)회사명" /></label>
+                <label className="field-block"><span>사업자번호</span><input value={estimateSender.businessNumber} onChange={(e) => updateEstimateParty("sender", "businessNumber")(e.target.value)} placeholder="123-45-67890" /></label>
+                <label className="field-block"><span>대표자명</span><input value={estimateSender.representative} onChange={(e) => updateEstimateParty("sender", "representative")(e.target.value)} placeholder="홍길동" /></label>
+                <label className="field-block"><span>연락처</span><input value={estimateSender.phone} onChange={(e) => updateEstimateParty("sender", "phone")(e.target.value)} placeholder="02-1234-5678" /></label>
+                <label className="field-block"><span>이메일</span><input value={estimateSender.email} onChange={(e) => updateEstimateParty("sender", "email")(e.target.value)} placeholder="email@company.com" /></label>
+                <label className="field-block"><span>로고 URL</span><input value={estimateSender.logoUrl} onChange={(e) => updateEstimateParty("sender", "logoUrl")(e.target.value)} placeholder="https://..." /></label>
+                <label className="field-block wide"><span>주소</span><textarea className="tool-textarea" value={estimateSender.address} onChange={(e) => updateEstimateParty("sender", "address")(e.target.value)} placeholder="서울시 강남구 테헤란로 123" /></label>
+              </div>
+            </section>
+
+            <section className="estimate-panel">
+              <h3>수신자 정보</h3>
+              <div className="estimate-form-grid">
+                <label className="field-block"><span>회사명/이름</span><input value={estimateReceiver.companyName} onChange={(e) => updateEstimateParty("receiver", "companyName")(e.target.value)} placeholder="(주)고객사" /></label>
+                <label className="field-block"><span>사업자번호</span><input value={estimateReceiver.businessNumber} onChange={(e) => updateEstimateParty("receiver", "businessNumber")(e.target.value)} placeholder="123-45-67890" /></label>
+                <label className="field-block"><span>연락처</span><input value={estimateReceiver.phone} onChange={(e) => updateEstimateParty("receiver", "phone")(e.target.value)} placeholder="02-9876-5432" /></label>
+                <label className="field-block"><span>이메일</span><input value={estimateReceiver.email} onChange={(e) => updateEstimateParty("receiver", "email")(e.target.value)} placeholder="client@company.com" /></label>
+                <label className="field-block wide"><span>주소</span><textarea className="tool-textarea" value={estimateReceiver.address} onChange={(e) => updateEstimateParty("receiver", "address")(e.target.value)} placeholder="서울시 서초구..." /></label>
+              </div>
+            </section>
+
+            <section className="estimate-panel">
+              <h3>품목</h3>
+              <div className="estimate-item-list">
+                {estimateLines.map((line, index) => (
+                  <div key={line.id} className="estimate-item-row">
+                    <label className="field-block estimate-item-name">
+                      <span>품목 {index + 1}</span>
+                      <input value={line.itemName} onChange={(e) => updateEstimateLine(line.id, "itemName")(e.target.value)} placeholder="품목명" />
+                    </label>
+                    <label className="field-block">
+                      <span>수량</span>
+                      <input value={formatNumber(parseNumber(line.quantity || "0"), 0)} onChange={(e) => updateEstimateLine(line.id, "quantity")(e.target.value)} />
+                    </label>
+                    <label className="field-block">
+                      <span>단가</span>
+                      <input value={formatNumber(parseNumber(line.unitPrice || "0"), 0)} onChange={(e) => updateEstimateLine(line.id, "unitPrice")(e.target.value)} />
+                    </label>
+                    <button type="button" className="estimate-remove-button" onClick={() => removeEstimateLine(line.id)} aria-label="품목 삭제">×</button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="estimate-add-button" onClick={addEstimateLine}><Plus size={16} /> 품목 추가</button>
+              <label className="field-block estimate-tax-field">
+                <span>부가세율 (%)</span>
+                <input value={estimateTaxRate} onChange={(e) => setEstimateTaxRate(sanitizeCurrencyInput(e.target.value))} />
+              </label>
+            </section>
+
+            <section className="estimate-panel">
+              <h3>결제 정보</h3>
+              <label className="field-block wide">
+                <span>입금 계좌</span>
+                <textarea className="tool-textarea" value={estimateAccount} onChange={(e) => setEstimateAccount(e.target.value)} placeholder="은행명: 국민은행 계좌번호: 123-456-789012 예금주: (주)회사명" />
+              </label>
+              <label className="field-block wide">
+                <span>비고</span>
+                <textarea className="tool-textarea" value={estimateNote} onChange={(e) => setEstimateNote(e.target.value)} placeholder="추가 안내 사항..." />
+              </label>
+            </section>
+          </div>
+
+          <aside className="estimate-preview-column">
+            <section className="estimate-panel estimate-preview-panel">
+              <h3>미리보기</h3>
+              <p>{docSubtitle}</p>
+              <article className="estimate-doc-preview">
+                <header className="estimate-doc-top">
+                  <div>
+                    {estimateSender.logoUrl && <span className="estimate-logo-mark" style={{ backgroundImage: `url(${estimateSender.logoUrl})` }} />}
+                    <strong>{docTitle}</strong>
+                  </div>
+                  <dl>
+                    <div><dt>문서번호:</dt><dd>{estimateNumber}</dd></div>
+                    <div><dt>발행일:</dt><dd>{formattedIssueDate}</dd></div>
+                    {estimateDueDate && <div><dt>{paymentLabel}:</dt><dd>{estimateDueDate}</dd></div>}
+                    {estimateValidUntil && <div><dt>유효기간:</dt><dd>{estimateValidUntil}</dd></div>}
+                  </dl>
+                </header>
+
+                <div className="estimate-party-preview">
+                  <section>
+                    <h4>발행자</h4>
+                    <strong>{displayPartyName(estimateSender)}</strong>
+                    {senderDetails.map((detail) => <span key={detail}>{detail}</span>)}
+                  </section>
+                  <section>
+                    <h4>수신자</h4>
+                    <strong>{displayPartyName(estimateReceiver)}</strong>
+                    {receiverDetails.map((detail) => <span key={detail}>{detail}</span>)}
+                  </section>
+                </div>
+
+                <table className="estimate-preview-table">
+                  <thead>
+                    <tr>
+                      <th>품목</th>
+                      <th>수량</th>
+                      <th>단가</th>
+                      <th>금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineRows.some((line) => line.itemName || line.amount > 0) ? (
+                      lineRows.map((line) => (
+                        <tr key={line.id}>
+                          <td>{line.itemName || "-"}</td>
+                          <td>{formatNumber(line.quantity, 0)}</td>
+                          <td>{formatWon(line.unitPrice)}</td>
+                          <td>{formatWon(line.amount)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={4} className="estimate-empty-cell">품목을 추가해주세요</td></tr>
+                    )}
+                  </tbody>
+                </table>
+
+                <div className="estimate-total-box">
+                  <div><span>소계</span><strong>{formatWon(subtotal)}</strong></div>
+                  <div><span>부가세 ({taxRate}%)</span><strong>{formatWon(taxAmount)}</strong></div>
+                  <div className="is-grand"><span>총액</span><strong>{formatWon(grandTotal)}</strong></div>
+                </div>
+
+                {(estimateAccount || estimateNote) && (
+                  <div className="estimate-doc-note">
+                    {estimateAccount && <p><strong>입금 계좌</strong><span>{estimateAccount}</span></p>}
+                    {estimateNote && <p><strong>비고</strong><span>{estimateNote}</span></p>}
+                  </div>
+                )}
+              </article>
+              {estimateCopyStatus && <p className="estimate-status">{estimateCopyStatus}</p>}
+              <div className="estimate-action-row">
+                <button type="button" className="primary-action" onClick={printEstimateDocument}><Printer size={16} /> 인쇄 / PDF 저장</button>
+                <button type="button" onClick={() => void copyEstimateHtml()}><Copy size={16} /> HTML 복사</button>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    );
+  }
 
   if (toolId === "tax-invoice") {
     const updateParty =

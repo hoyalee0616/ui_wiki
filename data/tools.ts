@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Box,
+  VectorSquare,
   BriefcaseBusiness,
   Calculator,
   CalendarDays,
@@ -102,7 +103,7 @@ export const toolSections: ToolSection[] = [
     description: "리사이즈, 압축 예상, 비율 계산, 색상 변환까지 이미지 실무를 빠르게",
     accent: "yellow",
     icon: Image,
-    stats: "5개 도구",
+    stats: "6개 도구",
   },
   {
     id: "developer-tools",
@@ -415,6 +416,19 @@ export const tools: ToolItem[] = [
     features: ["HEX/RGB/HSL", "색상 미리보기", "복사 가능한 CSS"],
     useCases: ["디자인 시스템", "CSS 작성", "브랜드 컬러 정리"],
     isNew: true,
+  },
+  {
+    id: "ai-to-svg",
+    name: "AI → SVG 변환기",
+    slug: "/tools/ai-to-svg",
+    summary: "Adobe Illustrator AI/EPS 파일을 SVG로 변환",
+    description: "서버 오픈소스 엔진으로 Adobe Illustrator(.ai)와 EPS 파일을 SVG로 변환하고 미리보기/다운로드할 수 있습니다.",
+    sectionId: "images",
+    accent: "orange",
+    icon: VectorSquare,
+    isNew: true,
+    features: ["AI/EPS 직접 변환", "SVG 미리보기", "코드 복사와 다운로드"],
+    useCases: ["웹 SVG 내보내기", "Figma/코드에 붙여넣기", "벡터 파일 점검"],
   },
   {
     id: "image-placeholder",
