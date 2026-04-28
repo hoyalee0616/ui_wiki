@@ -2637,10 +2637,284 @@ button {
 .stamp-wrap {
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: 24px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: #fffafa;
+  min-height: 260px;
+  position: relative;
+}
+
+.stamp-wrap.is-transparent {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #f1f1f1 25%, transparent 25%),
+    linear-gradient(-45deg, #f1f1f1 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f1f1f1 75%),
+    linear-gradient(-45deg, transparent 75%, #f1f1f1 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.stamp-wrap canvas {
+  display: block;
+}
+
+/* ── 도장 생성기 레이아웃 ─────────────────────────────── */
+.stamp-workbench {
+  gap: 18px;
+}
+
+.stamp-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .stamp-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stamp-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stamp-controls .field-block > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.stamp-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stamp-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  min-width: 64px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.stamp-chip strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.stamp-chip small {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.1;
+}
+
+.stamp-chip:hover {
+  border-color: #c93a3a;
+  color: #c93a3a;
+}
+
+.stamp-chip.is-active {
+  border-color: #c93a3a;
+  background: #fff1f1;
+  color: #c93a3a;
+}
+
+.stamp-chip.is-active strong,
+.stamp-chip.is-active small {
+  color: #c93a3a;
+}
+
+.stamp-chip-sm {
+  flex-direction: row;
+  min-width: 0;
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.stamp-chip-xs {
+  padding: 5px 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.stamp-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stamp-color-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px var(--border);
+  transition: transform 0.15s ease;
+  padding: 0;
+}
+
+.stamp-color-swatch:hover {
+  transform: scale(1.08);
+}
+
+.stamp-color-swatch.is-active {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px #c93a3a;
+}
+
+.stamp-color-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 4px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.stamp-color-pick input[type="color"] {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.stamp-slider-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .stamp-slider-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stamp-slider-grid input[type="range"] {
+  width: 100%;
+  accent-color: #c93a3a;
+}
+
+.stamp-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.stamp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.stamp-toggle input[type="checkbox"] {
+  accent-color: #c93a3a;
+}
+
+.stamp-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.stamp-suffix > span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.stamp-preview-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.stamp-actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.stamp-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+}
+
+.stamp-actions button:hover {
+  border-color: #c93a3a;
+  color: #c93a3a;
+}
+
+.stamp-actions .primary-action {
+  background: #c93a3a;
+  border-color: #c93a3a;
+  color: #ffffff;
+}
+
+.stamp-actions .primary-action:hover {
+  background: #b02d2d;
+  border-color: #b02d2d;
+  color: #ffffff;
+}
+
+.stamp-meta {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.stamp-actions {
+  justify-content: center;
 }
 
 .calendar-grid {

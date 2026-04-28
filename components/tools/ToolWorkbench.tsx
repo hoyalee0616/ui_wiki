@@ -2090,6 +2090,19 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     { name: "서비스 기획", qty: 1, price: 800000 },
     { name: "디자인 수정", qty: 2, price: 250000 },
   ]);
+  // ── 도장 생성기 옵션 ───────────────────────────────────────
+  const [stampShape, setStampShape] = useState<"circle" | "square" | "ellipse" | "rounded">("circle");
+  const [stampType, setStampType] = useState<"personal" | "official" | "name" | "rect">("personal");
+  const [stampColor, setStampColor] = useState<string>("#c93a3a");
+  const [stampFont, setStampFont] = useState<"serif" | "sans" | "mincho" | "myeongjo">("serif");
+  const [stampBorder, setStampBorder] = useState<number>(6);
+  const [stampSize, setStampSize] = useState<number>(220);
+  const [stampLayout, setStampLayout] = useState<"auto" | "horizontal" | "vertical" | "grid">("auto");
+  const [stampInnerBorder, setStampInnerBorder] = useState<boolean>(false);
+  const [stampSuffix, setStampSuffix] = useState<"none" | "in" | "印">("none");
+  const [stampTransparent, setStampTransparent] = useState<boolean>(true);
+  const [stampTexture, setStampTexture] = useState<"off" | "soft" | "medium" | "strong">("medium");
+  const [stampTilt, setStampTilt] = useState<boolean>(true);
   const today = new Date();
   const defaultDate = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, "0")}-${`${today.getDate()}`.padStart(2, "0")}`;
   const [invoiceKind, setInvoiceKind] = useState<"tax" | "bill">("tax");
@@ -2146,17 +2159,287 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "#d15252";
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.arc(100, 100, 80, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#d15252";
-    ctx.font = "700 24px sans-serif";
+
+    // 캔버스 크기 동적 적용 (선명한 출력을 위해 2배 해상도)
+    const baseSize = Math.max(120, Math.min(360, stampSize));
+    const isEllipse = stampShape === "ellipse";
+    const w = isEllipse ? baseSize : baseSize;
+    const h = isEllipse ? Math.round(baseSize * 0.72) : baseSize;
+    const dpr = 2;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 배경 (투명 옵션 처리)
+    ctx.clearRect(0, 0, w, h);
+    if (!stampTransparent) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const padding = Math.max(stampBorder + 6, 10);
+    const color = stampColor;
+    const lineWidth = stampBorder;
+
+    // 텍스처 강도별 파라미터 (잉크는 진하게, 노이즈는 살짝만)
+    const textureParams = {
+      off:    { noise: 0,    drop: 0,    edgeJitter: 0,    rotateMax: 0,    blur: 0,   ink: 1.0 },
+      soft:   { noise: 0.05, drop: 0.015, edgeJitter: 0.4, rotateMax: 0.01, blur: 0,   ink: 1.0 },
+      medium: { noise: 0.10, drop: 0.04,  edgeJitter: 0.8, rotateMax: 0.02, blur: 0,   ink: 1.0 },
+      strong: { noise: 0.18, drop: 0.08,  edgeJitter: 1.3, rotateMax: 0.03, blur: 0,   ink: 0.98 },
+    } as const;
+    const tex = textureParams[stampTexture];
+
+    // 전체 살짝 기울이기 (실제로 도장 찍을 때처럼)
+    if (stampTilt && tex.rotateMax > 0) {
+      const tilt = (Math.random() - 0.5) * tex.rotateMax * 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(tilt);
+      ctx.translate(-cx, -cy);
+    }
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = lineWidth;
+
+    // ── 외곽 테두리 그리기 (텍스처 ON일 때 미세하게 들쭉날쭉) ──
+    const drawShapePath = (offset: number) => {
+      ctx.beginPath();
+      if (stampShape === "circle") {
+        const baseR = (Math.min(w, h) / 2) - padding - offset;
+        if (tex.edgeJitter > 0) {
+          const steps = 180;
+          for (let i = 0; i <= steps; i++) {
+            const a = (i / steps) * Math.PI * 2;
+            const jitter = (Math.random() - 0.5) * tex.edgeJitter;
+            const r = baseR + jitter;
+            const x = cx + Math.cos(a) * r;
+            const y = cy + Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+        } else {
+          ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+        }
+      } else if (stampShape === "ellipse") {
+        const rx = (w / 2) - padding - offset;
+        const ry = (h / 2) - padding - offset;
+        if (tex.edgeJitter > 0) {
+          const steps = 180;
+          for (let i = 0; i <= steps; i++) {
+            const a = (i / steps) * Math.PI * 2;
+            const j = (Math.random() - 0.5) * tex.edgeJitter;
+            const x = cx + Math.cos(a) * (rx + j);
+            const y = cy + Math.sin(a) * (ry + j);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+        } else {
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        }
+      } else if (stampShape === "square") {
+        const side = Math.min(w, h) - padding * 2 - offset * 2;
+        ctx.rect(cx - side / 2, cy - side / 2, side, side);
+      } else if (stampShape === "rounded") {
+        const side = Math.min(w, h) - padding * 2 - offset * 2;
+        const r = side * 0.16;
+        const x = cx - side / 2;
+        const y = cy - side / 2;
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + side - r, y);
+        ctx.quadraticCurveTo(x + side, y, x + side, y + r);
+        ctx.lineTo(x + side, y + side - r);
+        ctx.quadraticCurveTo(x + side, y + side, x + side - r, y + side);
+        ctx.lineTo(x + r, y + side);
+        ctx.quadraticCurveTo(x, y + side, x, y + side - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+      }
+    };
+
+    const drawShape = (offset: number, lw: number) => {
+      ctx.lineWidth = lw;
+      drawShapePath(offset);
+      ctx.stroke();
+    };
+
+    // 외곽선 (잉크가 진하도록 두 번 겹쳐 그림)
+    ctx.globalAlpha = tex.ink;
+    drawShape(0, lineWidth);
+    drawShape(0, lineWidth); // 오버프린트로 진하게
+    if (stampInnerBorder) {
+      drawShape(lineWidth + 4, Math.max(1, lineWidth * 0.4));
+      drawShape(lineWidth + 4, Math.max(1, lineWidth * 0.4));
+    }
+    ctx.globalAlpha = 1;
+
+    // ── 글자 ────────────────────────────────────
+    const fontMap: Record<typeof stampFont, string> = {
+      serif: '"Nanum Myeongjo", "맑은 고딕", "Malgun Gothic", serif',
+      sans: '"Pretendard", "맑은 고딕", "Malgun Gothic", sans-serif',
+      mincho: '"Noto Serif KR", "Nanum Myeongjo", serif',
+      myeongjo: '"Batang", "바탕", "Nanum Myeongjo", serif',
+    };
+    const fontFamily = fontMap[stampFont];
+
+    const baseText = (name || "성명").trim();
+    let chars = baseText.split("");
+    if (stampSuffix === "in") chars = [...chars, "인"];
+    if (stampSuffix === "印") chars = [...chars, "印"];
+
+    // 사용 가능한 내부 영역
+    const innerSize = Math.min(w, h) - padding * 2 - lineWidth * 2 - (stampInnerBorder ? 16 : 0);
+
     ctx.textAlign = "center";
-    ctx.fillText(name, 100, 105);
-  }, [name, toolId]);
+    ctx.textBaseline = "middle";
+
+    // 글자 한 자 한 자 살짝 흔들리고 회전 + 두 번 그려 진하게
+    const jitterChar = (cb: () => void) => {
+      if (tex.edgeJitter <= 0) {
+        cb();
+        cb(); // overprint for darker fill
+        return;
+      }
+      const jx = (Math.random() - 0.5) * tex.edgeJitter * 0.5;
+      const jy = (Math.random() - 0.5) * tex.edgeJitter * 0.5;
+      const rot = (Math.random() - 0.5) * 0.03;
+      ctx.save();
+      ctx.translate(jx, jy);
+      ctx.translate(cx, cy);
+      ctx.rotate(rot);
+      ctx.translate(-cx, -cy);
+      ctx.globalAlpha = tex.ink;
+      cb();
+      cb(); // overprint
+      ctx.restore();
+    };
+
+    const drawCenter = (text: string, fontSize: number) => {
+      ctx.font = `700 ${fontSize}px ${fontFamily}`;
+      jitterChar(() => ctx.fillText(text, cx, cy + fontSize * 0.04));
+    };
+
+    const drawGrid2x2 = (cs: string[], fontSize: number) => {
+      ctx.font = `700 ${fontSize}px ${fontFamily}`;
+      const gap = fontSize * 0.85;
+      // 한국 도장 관습: 우상→좌상→우하→좌하 순으로 읽음
+      const positions = [
+        { x: cx + gap / 2, y: cy - gap / 2 },
+        { x: cx - gap / 2, y: cy - gap / 2 },
+        { x: cx + gap / 2, y: cy + gap / 2 },
+        { x: cx - gap / 2, y: cy + gap / 2 },
+      ];
+      cs.slice(0, 4).forEach((c, i) => {
+        const p = positions[i];
+        jitterChar(() => ctx.fillText(c, p.x, p.y));
+      });
+    };
+
+    const drawHorizontal = (cs: string[], fontSize: number) => {
+      ctx.font = `700 ${fontSize}px ${fontFamily}`;
+      const total = cs.length;
+      const gap = fontSize * 0.95;
+      const startX = cx - (gap * (total - 1)) / 2;
+      cs.forEach((c, i) => {
+        const x = startX + gap * i;
+        jitterChar(() => ctx.fillText(c, x, cy));
+      });
+    };
+
+    const drawVertical = (cs: string[], fontSize: number) => {
+      ctx.font = `700 ${fontSize}px ${fontFamily}`;
+      const total = cs.length;
+      const gap = fontSize * 1.0;
+      const startY = cy - (gap * (total - 1)) / 2;
+      cs.forEach((c, i) => {
+        const y = startY + gap * i;
+        jitterChar(() => ctx.fillText(c, cx, y));
+      });
+    };
+
+    const fitFontSize = (count: number, mode: "single" | "row" | "col" | "grid") => {
+      if (mode === "single") return innerSize * 0.62;
+      if (mode === "grid") return innerSize * 0.36;
+      if (mode === "row") return Math.min(innerSize / Math.max(count, 1) * 0.9, innerSize * 0.5);
+      return Math.min(innerSize / Math.max(count, 1) * 0.9, innerSize * 0.5);
+    };
+
+    const layout = stampLayout;
+    const count = chars.length;
+
+    if (layout === "horizontal") {
+      drawHorizontal(chars, fitFontSize(count, "row"));
+    } else if (layout === "vertical") {
+      drawVertical(chars, fitFontSize(count, "col"));
+    } else if (layout === "grid") {
+      drawGrid2x2(chars, fitFontSize(count, "grid"));
+    } else {
+      if (count <= 1) {
+        drawCenter(chars[0] || "", fitFontSize(count, "single"));
+      } else if (count === 2) {
+        if (stampShape === "ellipse") drawHorizontal(chars, fitFontSize(count, "row"));
+        else drawHorizontal(chars, innerSize * 0.45);
+      } else if (count === 3) {
+        drawHorizontal(chars, fitFontSize(count, "row"));
+      } else if (count === 4) {
+        drawGrid2x2(chars, fitFontSize(count, "grid"));
+      } else {
+        drawHorizontal(chars, fitFontSize(count, "row"));
+      }
+    }
+
+    // 회전 변환 복귀
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // ── 잉크 텍스처: 픽셀 단위로 random drop / noise 적용 ──
+    if (tex.noise > 0) {
+      const pxW = canvas.width;
+      const pxH = canvas.height;
+      const img = ctx.getImageData(0, 0, pxW, pxH);
+      const data = img.data;
+      // 시드 흔들기 (한 번 그리면 픽셀이 매번 바뀌지 않게 deterministic)
+      let seed = (baseText.length * 9301 + stampBorder * 49297 + stampSize * 233) % 233280;
+      const rnd = () => {
+        seed = (seed * 9301 + 49297) % 233280;
+        return seed / 233280;
+      };
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        if (a === 0) continue; // 투명 픽셀은 skip
+        // ink 픽셀에 grain 효과: 일부는 완전히 비우기 (도장이 종이에 안 닿은 부분)
+        if (rnd() < tex.drop) {
+          data[i + 3] = 0;
+          continue;
+        }
+        // alpha 변동
+        const variation = 1 - rnd() * tex.noise;
+        data[i + 3] = Math.max(0, Math.min(255, Math.round(a * variation)));
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    // 블러는 잉크가 너무 옅어 보이게 만들어 제거함
+  }, [
+    name,
+    toolId,
+    stampShape,
+    stampType,
+    stampColor,
+    stampFont,
+    stampBorder,
+    stampSize,
+    stampLayout,
+    stampInnerBorder,
+    stampSuffix,
+    stampTransparent,
+    stampTexture,
+    stampTilt,
+  ]);
 
   useEffect(() => {
     if (!sigManualCopy) return;
@@ -2798,17 +3081,287 @@ function BusinessDocuments({ toolId, toolName }: { toolId: string; toolName: str
       if (!url) return;
       const link = document.createElement("a");
       link.href = url;
-      link.download = "stamp.png";
+      link.download = `stamp-${(name || "stamp").trim()}.png`;
       link.click();
     };
 
+    const presetColors: { label: string; value: string }[] = [
+      { label: "주홍", value: "#c93a3a" },
+      { label: "선홍", value: "#e02020" },
+      { label: "진청", value: "#1e3a8a" },
+      { label: "검정", value: "#111111" },
+    ];
+
+    const shapes: { value: typeof stampShape; label: string }[] = [
+      { value: "circle", label: "원형" },
+      { value: "square", label: "사각" },
+      { value: "rounded", label: "둥근사각" },
+      { value: "ellipse", label: "타원" },
+    ];
+
+    const types: { value: typeof stampType; label: string; hint: string }[] = [
+      { value: "personal", label: "인감", hint: "개인용" },
+      { value: "official", label: "직인", hint: "법인용" },
+      { value: "name", label: "막도장", hint: "성명" },
+      { value: "rect", label: "사각도장", hint: "결재용" },
+    ];
+
+    const fonts: { value: typeof stampFont; label: string }[] = [
+      { value: "serif", label: "명조" },
+      { value: "sans", label: "고딕" },
+      { value: "mincho", label: "전서" },
+      { value: "myeongjo", label: "바탕" },
+    ];
+
+    const layouts: { value: typeof stampLayout; label: string }[] = [
+      { value: "auto", label: "자동" },
+      { value: "horizontal", label: "가로" },
+      { value: "vertical", label: "세로" },
+      { value: "grid", label: "2×2" },
+    ];
+
     return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>도장 생성기</strong><span>캔버스 기반 PNG</span></div>
-        <input className="tool-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="도장 이름" />
-        <div className="stamp-wrap"><canvas ref={canvasRef} width={200} height={200} /></div>
-        <div className="tool-actions-row">
-          <button type="button" onClick={downloadPng}><Download size={16} /> PNG 저장</button>
+      <section className="detail-card workbench-card stamp-workbench">
+        <div className="workbench-head">
+          <strong>도장 생성기</strong>
+          <span>모양·색상·글꼴 자유 설정 · 투명 PNG 저장</span>
+        </div>
+
+        <div className="stamp-layout">
+          <div className="stamp-controls">
+            <label className="field-block">
+              <span>이름 / 글자</span>
+              <input
+                className="tool-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="예) 홍길동, 대표이사"
+                maxLength={8}
+              />
+            </label>
+
+            <div className="field-block">
+              <span>도장 종류</span>
+              <div className="stamp-chip-row">
+                {types.map((t) => (
+                  <button
+                    type="button"
+                    key={t.value}
+                    className={`stamp-chip ${stampType === t.value ? "is-active" : ""}`}
+                    onClick={() => {
+                      setStampType(t.value);
+                      // 종류에 따라 모양 자동 추천
+                      if (t.value === "rect") setStampShape("rounded");
+                      else if (t.value === "official") setStampShape("square");
+                      else setStampShape("circle");
+                    }}
+                  >
+                    <strong>{t.label}</strong>
+                    <small>{t.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field-block">
+              <span>모양</span>
+              <div className="stamp-chip-row">
+                {shapes.map((s) => (
+                  <button
+                    type="button"
+                    key={s.value}
+                    className={`stamp-chip stamp-chip-sm ${stampShape === s.value ? "is-active" : ""}`}
+                    onClick={() => setStampShape(s.value)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field-block">
+              <span>글꼴</span>
+              <div className="stamp-chip-row">
+                {fonts.map((f) => (
+                  <button
+                    type="button"
+                    key={f.value}
+                    className={`stamp-chip stamp-chip-sm ${stampFont === f.value ? "is-active" : ""}`}
+                    onClick={() => setStampFont(f.value)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field-block">
+              <span>글자 배치</span>
+              <div className="stamp-chip-row">
+                {layouts.map((l) => (
+                  <button
+                    type="button"
+                    key={l.value}
+                    className={`stamp-chip stamp-chip-sm ${stampLayout === l.value ? "is-active" : ""}`}
+                    onClick={() => setStampLayout(l.value)}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field-block">
+              <span>색상</span>
+              <div className="stamp-color-row">
+                {presetColors.map((c) => (
+                  <button
+                    type="button"
+                    key={c.value}
+                    title={c.label}
+                    className={`stamp-color-swatch ${stampColor === c.value ? "is-active" : ""}`}
+                    style={{ background: c.value }}
+                    onClick={() => setStampColor(c.value)}
+                  />
+                ))}
+                <label className="stamp-color-pick">
+                  <input
+                    type="color"
+                    value={stampColor}
+                    onChange={(e) => setStampColor(e.target.value)}
+                  />
+                  <span>직접 선택</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="stamp-slider-grid">
+              <label className="field-block">
+                <span>크기 ({stampSize}px)</span>
+                <input
+                  type="range"
+                  min={140}
+                  max={320}
+                  step={10}
+                  value={stampSize}
+                  onChange={(e) => setStampSize(Number(e.target.value))}
+                />
+              </label>
+              <label className="field-block">
+                <span>테두리 굵기 ({stampBorder}px)</span>
+                <input
+                  type="range"
+                  min={2}
+                  max={14}
+                  step={1}
+                  value={stampBorder}
+                  onChange={(e) => setStampBorder(Number(e.target.value))}
+                />
+              </label>
+            </div>
+
+            <div className="field-block">
+              <span>잉크 질감</span>
+              <div className="stamp-chip-row">
+                {(["off", "soft", "medium", "strong"] as const).map((v) => (
+                  <button
+                    type="button"
+                    key={v}
+                    className={`stamp-chip stamp-chip-sm ${stampTexture === v ? "is-active" : ""}`}
+                    onClick={() => setStampTexture(v)}
+                  >
+                    {v === "off" ? "깔끔" : v === "soft" ? "약간" : v === "medium" ? "보통" : "강하게"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field-block">
+              <span>옵션</span>
+              <div className="stamp-toggle-row">
+                <label className="stamp-toggle">
+                  <input
+                    type="checkbox"
+                    checked={stampInnerBorder}
+                    onChange={(e) => setStampInnerBorder(e.target.checked)}
+                  />
+                  <span>이중 테두리</span>
+                </label>
+                <label className="stamp-toggle">
+                  <input
+                    type="checkbox"
+                    checked={stampTransparent}
+                    onChange={(e) => setStampTransparent(e.target.checked)}
+                  />
+                  <span>투명 배경</span>
+                </label>
+                <label className="stamp-toggle">
+                  <input
+                    type="checkbox"
+                    checked={stampTilt}
+                    onChange={(e) => setStampTilt(e.target.checked)}
+                  />
+                  <span>기울기</span>
+                </label>
+                <div className="stamp-suffix">
+                  <span>접미자</span>
+                  <div className="stamp-chip-row">
+                    {(["none", "in", "印"] as const).map((v) => (
+                      <button
+                        type="button"
+                        key={v}
+                        className={`stamp-chip stamp-chip-xs ${stampSuffix === v ? "is-active" : ""}`}
+                        onClick={() => setStampSuffix(v)}
+                      >
+                        {v === "none" ? "없음" : v === "in" ? "인" : "印"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="stamp-preview-pane">
+            <div
+              className={`stamp-wrap ${stampTransparent ? "is-transparent" : ""}`}
+              data-shape={stampShape}
+            >
+              <canvas ref={canvasRef} />
+            </div>
+            <div className="stamp-meta">
+              <span>{shapes.find((s) => s.value === stampShape)?.label}</span>
+              <span>·</span>
+              <span>{types.find((t) => t.value === stampType)?.label}</span>
+              <span>·</span>
+              <span>{fonts.find((f) => f.value === stampFont)?.label}</span>
+            </div>
+            <div className="tool-actions-row stamp-actions">
+              <button type="button" className="primary-action" onClick={downloadPng}>
+                <Download size={16} /> PNG 저장
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStampShape("circle");
+                  setStampType("personal");
+                  setStampColor("#c93a3a");
+                  setStampFont("serif");
+                  setStampBorder(6);
+                  setStampSize(220);
+                  setStampLayout("auto");
+                  setStampInnerBorder(false);
+                  setStampSuffix("none");
+                  setStampTransparent(true);
+                  setStampTexture("medium");
+                  setStampTilt(true);
+                  setName("홍길동");
+                }}
+              >
+                <RotateCcw size={16} /> 초기화
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     );
