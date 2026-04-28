@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type SetStateAction } from "react";
 import { Copy, Download, Plus, Printer, RotateCcw, Upload } from "lucide-react";
 import type { ToolSectionId } from "@/data/tools";
 
@@ -178,6 +178,12 @@ const markdownExample = [
   "",
   "수평선 아래에 있는 내용입니다.",
 ].join("\n");
+
+const romanizationExample = "김철수\n서울특별시 강남구 테헤란로 123\n대한민국";
+
+function getDocumentDefaultText(toolId: string) {
+  return toolId === "romanization" ? romanizationExample : markdownExample;
+}
 
 type MarkdownViewMode = "split" | "editor" | "preview";
 
@@ -369,14 +375,26 @@ function renderMarkdown(markdown: string) {
   return html.join("");
 }
 
-function slugify(text: string) {
-  return romanizeKorean(text)
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+function slugify(text: string, sep = "-", lower = true, removeKorean = true, maxLen = 0) {
+  let s = removeKorean ? romanizeKorean(text) : text;
+  if (lower) s = s.toLowerCase();
+  s = s.trim().replace(/[^a-zA-Z0-9\s가-힣]/g, "").replace(/\s+/g, sep).replace(new RegExp(`${sep}+`, "g"), sep).replace(new RegExp(`^${sep}|${sep}$`, "g"), "");
+  if (maxLen > 0) s = s.slice(0, maxLen).replace(new RegExp(`${sep}$`), "");
+  return s;
+}
+
+function toCamelCase(text: string, removeKorean = true) {
+  const words = slugify(text, " ", true, removeKorean).split(" ").filter(Boolean);
+  return words.map((w, i) => i === 0 ? w : w[0].toUpperCase() + w.slice(1)).join("");
+}
+
+function toSnakeCase(text: string, removeKorean = true) {
+  return slugify(text, "_", true, removeKorean);
+}
+
+function toPascalCase(text: string, removeKorean = true) {
+  const words = slugify(text, " ", true, removeKorean).split(" ").filter(Boolean);
+  return words.map((w) => w[0].toUpperCase() + w.slice(1)).join("");
 }
 
 function parseDateInput(value: string) {
@@ -825,9 +843,26 @@ function buildPrettyTableHtml(header: string[], body: string[][], aligns: Markdo
 }
 
 function DocumentTools({ toolId }: { toolId: string }) {
-  const [text, setText] = useState(markdownExample);
+  const [textState, setTextState] = useState(() => ({ toolId, value: getDocumentDefaultText(toolId) }));
+  const text = textState.toolId === toolId ? textState.value : getDocumentDefaultText(toolId);
+  const setText = (next: SetStateAction<string>) => {
+    setTextState((previous) => {
+      const currentValue = previous.toolId === toolId ? previous.value : getDocumentDefaultText(toolId);
+      return {
+        toolId,
+        value: typeof next === "function" ? next(currentValue) : next,
+      };
+    });
+  };
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
+  const [slugSep, setSlugSep] = useState("-");
+  const [slugLower, setSlugLower] = useState(true);
+  const [slugRemoveKr, setSlugRemoveKr] = useState(true);
+  const [slugMaxLen, setSlugMaxLen] = useState(0);
+  const [slugCopied, setSlugCopied] = useState<string | null>(null);
+  const [romanStyle, setRomanStyle] = useState<"standard" | "name">("standard");
+  const [romanCase, setRomanCase] = useState<"word" | "first" | "lower" | "upper">("word");
   const [tableData, setTableData] = useState(() => createMarkdownTableData(3, 3));
   const [tableAligns, setTableAligns] = useState<MarkdownTableAlign[]>(() => Array.from({ length: 3 }, () => "left"));
   const [csvInput, setCsvInput] = useState("");
@@ -1172,50 +1207,251 @@ function DocumentTools({ toolId }: { toolId: string }) {
   }
 
   if (toolId === "slug-generator") {
-    const slug = slugify(text);
+    const SEP_OPTIONS = [
+      { label: "하이픈 (-)", value: "-" },
+      { label: "언더스코어 (_)", value: "_" },
+      { label: "점 (.)", value: "." },
+    ];
+    const MAX_LEN_OPTIONS = [
+      { label: "무제한", value: 0 },
+      { label: "30자", value: 30 },
+      { label: "50자", value: 50 },
+      { label: "60자", value: 60 },
+      { label: "100자", value: 100 },
+    ];
+    const EXAMPLES = [
+      "안녕하세요 Hello World!",
+      "My First Blog Post",
+      "2024년 새해 목표 계획",
+      "React vs Vue: Which is Better?",
+    ];
+
+    const sep = slugSep, setSep = setSlugSep;
+    const lower = slugLower, setLower = setSlugLower;
+    const removeKr = slugRemoveKr, setRemoveKr = setSlugRemoveKr;
+    const maxLen = slugMaxLen, setMaxLen = setSlugMaxLen;
+
+    const urlSlug = slugify(text, sep, lower, removeKr, maxLen);
+    const camel   = toCamelCase(text, removeKr);
+    const snake   = toSnakeCase(text, removeKr);
+    const pascal  = toPascalCase(text, removeKr);
+
+    const handleSlugCopy = async (label: string, value: string) => {
+      const ok = await copyText(value);
+      if (ok) {
+        setSlugCopied(label);
+        setTimeout(() => setSlugCopied(null), 1800);
+      }
+    };
+
+    const RESULT_ROWS: { label: string; value: string }[] = [
+      { label: "URL 슬러그", value: urlSlug },
+      { label: "camelCase", value: camel },
+      { label: "snake_case", value: snake },
+      { label: "PascalCase", value: pascal },
+    ];
+
     return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>슬러그 생성기</strong><span>한글 제목도 URL용 영문 슬러그로 변환</span></div>
-        <input className="tool-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="제목을 입력하세요" />
-        <div className="result-panel"><strong>{slug || "slug-will-appear-here"}</strong></div>
-        <div className="tool-actions-row">
-          <button type="button" onClick={() => copyText(slug)}><Copy size={16} /> 복사</button>
+      <div className="slug-layout">
+        <div className="slug-main">
+          <div className="detail-card">
+            <h3 className="slug-section-title">텍스트 입력</h3>
+            <textarea
+              className="tool-textarea slug-textarea"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="변환할 텍스트를 입력하세요"
+              rows={4}
+            />
+            <div className="slug-examples">
+              {EXAMPLES.map((ex) => (
+                <button key={ex} type="button" className="slug-example-chip" onClick={() => setText(ex)}>
+                  {ex.length > 20 ? ex.slice(0, 20) + "..." : ex}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="detail-card">
+            <h3 className="slug-section-title">변환 결과</h3>
+            <div className="slug-results">
+              {RESULT_ROWS.map(({ label, value }) => (
+                <div key={label} className="slug-result-row">
+                  <div className="slug-result-head">
+                    <span className="slug-result-label">{label}</span>
+                    <button
+                      type="button"
+                      className={`slug-copy-btn${slugCopied === label ? " slug-copy-btn--ok" : ""}`}
+                      onClick={() => void handleSlugCopy(label, value)}
+                    >
+                      <Copy size={14} />
+                      {slugCopied === label ? "복사됨!" : "복사"}
+                    </button>
+                  </div>
+                  <div className="slug-result-value">
+                    {value || <span className="slug-placeholder">변환 결과가 여기에 표시됩니다</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </section>
+
+        <div className="slug-side">
+          <div className="detail-card">
+            <h3 className="slug-section-title">옵션</h3>
+            <div className="slug-options">
+              <label className="field-block">
+                <span>구분자</span>
+                <select className="tool-input" value={sep} onChange={(e) => setSep(e.target.value)}>
+                  {SEP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+              <label className="slug-checkbox">
+                <input type="checkbox" checked={lower} onChange={(e) => setLower(e.target.checked)} />
+                <span>소문자로 변환</span>
+              </label>
+              <label className="slug-checkbox">
+                <input type="checkbox" checked={removeKr} onChange={(e) => setRemoveKr(e.target.checked)} />
+                <span>한글 제거</span>
+              </label>
+              <label className="field-block">
+                <span>최대 길이 (0 = 무제한)</span>
+                <select className="tool-input" value={maxLen} onChange={(e) => setMaxLen(Number(e.target.value))}>
+                  {MAX_LEN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="detail-card slug-tips-card">
+            <h3 className="slug-section-title">사용 팁</h3>
+            <ul className="slug-tips">
+              <li>URL 슬러그는 블로그 포스트, 페이지 주소에 사용</li>
+              <li>camelCase는 JavaScript 변수명에 적합</li>
+              <li>snake_case는 Python, 데이터베이스 필드명에 적합</li>
+              <li>PascalCase는 클래스명, 컴포넌트명에 적합</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     );
   }
 
   if (toolId === "romanization") {
-    const converted = romanizeKorean(text);
-    return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>로마자 변환기</strong><span>한글 → 영문 표기</span></div>
-        <textarea className="tool-textarea" value={text} onChange={(e) => setText(e.target.value)} />
-        <div className="result-panel"><strong>{converted}</strong></div>
-        <div className="tool-actions-row">
-          <button type="button" onClick={() => copyText(converted)}><Copy size={16} /> 복사</button>
-        </div>
-      </section>
-    );
-  }
+    const ROMAN_EXAMPLES = [
+      { kr: "김철수", en: "Kim Cheolsu" },
+      { kr: "서울특별시", en: "Seoul Teukbyeolsi" },
+      { kr: "한국", en: "Hanguk" },
+      { kr: "부산", en: "Busan" },
+      { kr: "제주도", en: "Jejudo" },
+      { kr: "인천국제공항", en: "Incheon Gukje Gonghang" },
+    ];
 
-  if (toolId === "image-pdf-smart-tools") {
+    const applyCase = (s: string) => {
+      if (romanCase === "lower") return s.toLowerCase();
+      if (romanCase === "upper") return s.toUpperCase();
+      if (romanCase === "first") return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+      // word: capitalize first letter of each word
+      return s.replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+
+    const rawConverted = romanizeKorean(text);
+    const converted = text ? applyCase(rawConverted) : "";
+
     return (
-      <section className="detail-card workbench-card">
-        <div className="workbench-head"><strong>이미지/PDF 처리</strong><span>외부 도구 임베드</span></div>
-        <div className="external-tool-shell">
-          <iframe
-            title="이미지/PDF 처리"
-            src="https://jjao.kr/ho/single-index.html"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
+      <div className="roman-layout">
+        <div className="roman-top-row">
+        <div className="roman-input-col detail-card">
+          <div className="roman-col-head">
+            <strong>입력</strong>
+            <span>변환할 한글을 입력하세요</span>
+          </div>
+          <label className="field-block">
+            <div className="roman-label-row">
+              <span>한글 입력</span>
+              <button type="button" className="roman-reset-btn" onClick={() => setText(romanizationExample)}>
+                기본값으로
+              </button>
+            </div>
+            <textarea
+              className="tool-textarea"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="이름이나 주소를 입력하세요..."
+              rows={5}
+            />
+          </label>
+          <div className="roman-option-group">
+            <span className="roman-option-label">변환 스타일</span>
+            <div className="roman-btn-group">
+              {(["standard", "name"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`roman-style-btn${romanStyle === s ? " is-active" : ""}`}
+                  onClick={() => setRomanStyle(s)}
+                >
+                  {s === "standard" ? "표준 표기법" : "이름용"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="roman-option-group">
+            <span className="roman-option-label">대소문자</span>
+            <div className="roman-btn-group">
+              {(["word", "first", "lower", "upper"] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`roman-style-btn${romanCase === c ? " is-active" : ""}`}
+                  onClick={() => setRomanCase(c)}
+                >
+                  {c === "word" ? "단어별" : c === "first" ? "첫글자" : c === "lower" ? "소문자" : "대문자"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <p className="field-help">
-          이미지 압축, 배경 투명화, PDF 텍스트 넣기 기능을 제공하는 페이지를 이 화면 안에 붙였습니다.
-          iframe이 차단되면 새 창에서 열어 주세요: <a href="https://jjao.kr/ho/single-index.html" target="_blank" rel="noreferrer">jjao.kr 도구 열기</a>
-        </p>
-      </section>
+
+        <div className="roman-result-col detail-card">
+          <div className="roman-col-head">
+            <strong>결과</strong>
+            <span>로마자 변환 결과</span>
+          </div>
+          <div className="roman-result-box">
+            {converted || <span className="slug-placeholder">결과가 여기에 표시됩니다...</span>}
+          </div>
+          <button
+            type="button"
+            className="roman-copy-btn"
+            onClick={() => void copyText(converted)}
+          >
+            결과 복사
+          </button>
+        </div>
+        </div>{/* roman-top-row */}
+
+        <div className="roman-examples detail-card">
+          <div className="roman-col-head">
+            <strong>빠른 예제</strong>
+            <span>클릭하여 입력에 추가</span>
+          </div>
+          <div className="roman-example-grid">
+            {ROMAN_EXAMPLES.map((ex) => (
+              <button
+                key={ex.kr}
+                type="button"
+                className="roman-example-card"
+                onClick={() => setText((prev) => prev ? prev + " " + ex.kr : ex.kr)}
+              >
+                <span className="roman-ex-kr">{ex.kr}</span>
+                <span className="roman-ex-en">{ex.en}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     );
   }
 
