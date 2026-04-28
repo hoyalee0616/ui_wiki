@@ -9,9 +9,11 @@ import { SearchBar } from "@/components/common/SearchBar";
 interface HeaderProps {
   menuOpen?: boolean;
   onMenuClick?: () => void;
+  scrolled?: boolean;
+  compact?: boolean;
 }
 
-export function Header({ menuOpen = false, onMenuClick }: HeaderProps) {
+export function Header({ menuOpen = false, onMenuClick, scrolled = false, compact = false }: HeaderProps) {
   const menuButton = onMenuClick ? (
     <button
       type="button"
@@ -29,7 +31,7 @@ export function Header({ menuOpen = false, onMenuClick }: HeaderProps) {
   );
 
   return (
-    <header className="site-header">
+    <header className={`site-header${scrolled ? " is-scrolled" : ""}${compact ? " is-compact" : ""}`}>
       {menuButton}
       <Logo />
       <div className="header-search">
