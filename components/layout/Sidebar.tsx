@@ -55,7 +55,7 @@ export function Sidebar() {
                   return (
                     <Link key={tool.id} href={tool.slug} className={`sidebar-tool-link ${isActive ? "active" : ""}`}>
                       <span className={`sidebar-tool-mini ${tool.accent}`}>
-                        <ToolIcon size={14} />
+                        <ToolIcon size={17} />
                       </span>
                       <span>{tool.name}</span>
                     </Link>

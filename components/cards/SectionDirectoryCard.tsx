@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { CompactToolRow } from "@/components/cards/CompactToolRow";
 import type { ToolItem, ToolSection } from "@/data/tools";
 
 interface SectionDirectoryCardProps {
@@ -29,10 +28,18 @@ export function SectionDirectoryCard({ section, tools }: SectionDirectoryCardPro
         </Link>
       </div>
 
-      <div className="compact-tool-list">
-        {tools.map((tool) => (
-          <CompactToolRow key={tool.id} tool={tool} />
-        ))}
+      <div className="section-tool-square-grid">
+        {tools.map((tool) => {
+          const ToolIcon = tool.icon;
+          return (
+            <Link key={tool.id} href={tool.slug} className={`mobile-tool-square ${tool.accent}`}>
+              <span className="mobile-tool-icon">
+                <ToolIcon size={20} />
+              </span>
+              <span className="mobile-tool-name">{tool.name}</span>
+            </Link>
+          );
+        })}
       </div>
     </section>
   );

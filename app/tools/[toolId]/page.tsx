@@ -6,6 +6,7 @@ import { ToolCard } from "@/components/cards/ToolCard";
 import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 import { ToolWorkbench } from "@/components/tools/ToolWorkbench";
+import { ToolVisitTracker } from "@/components/tools/ToolVisitTracker";
 import { getRelatedTools, getSectionById, getToolById, tools } from "@/data/tools";
 
 export function generateStaticParams() {
@@ -30,6 +31,7 @@ export default async function ToolDetailPage({
 
   return (
     <DocsFrame contentClassName="tool-page-content">
+      <ToolVisitTracker id={tool.id} name={tool.name} href={tool.slug} accent={tool.accent} />
       <div className="detail-page tool-detail-page">
         <Breadcrumb
           items={[

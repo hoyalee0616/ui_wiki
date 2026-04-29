@@ -18,7 +18,6 @@ export function MobileMenu({ onClose }: { onClose?: () => void }) {
       <div className="mobile-menu-header">
         <div>
           <h2>서비스 메뉴</h2>
-          <small>모든 도구를 카테고리별로 바로 이동할 수 있어요.</small>
         </div>
         <button type="button" className="icon-button" aria-label="메뉴 닫기" onClick={onClose}>
           <X size={22} />
@@ -28,7 +27,6 @@ export function MobileMenu({ onClose }: { onClose?: () => void }) {
       {toolSections.map((section) => {
         const isOpen = openSections[section.id];
         const isSectionActive = sectionMap[section.id].some((tool) => tool.id === currentToolId);
-        const SectionIcon = section.icon;
 
         return (
           <section key={section.id} className="mobile-category">
@@ -43,29 +41,26 @@ export function MobileMenu({ onClose }: { onClose?: () => void }) {
               }
               aria-expanded={isOpen}
             >
-              <div className="mobile-category-title-copy">
-                <span className={`mini-icon ${section.accent}`}>
-                  <SectionIcon size={16} />
-                </span>
-                <div>
-                  <h3>{section.label}</h3>
-                  <small>{section.description}</small>
-                </div>
-              </div>
-              <ChevronDown size={18} className={isOpen ? "is-open" : ""} />
+              <span className="mobile-category-label">{section.label}</span>
+              <ChevronDown size={15} className={isOpen ? "is-open" : ""} />
             </button>
             {isOpen ? (
-              <div className="mobile-category-list">
+              <div className="mobile-tool-list">
                 {sectionMap[section.id].map((tool) => {
                   const Icon = tool.icon;
                   const isActive = currentToolId === tool.id;
 
                   return (
-                    <Link key={tool.id} href={tool.slug} className={isActive ? "active" : ""} onClick={onClose}>
-                      <span className={`mini-icon ${tool.accent}`}>
-                        <Icon size={16} />
+                    <Link
+                      key={tool.id}
+                      href={tool.slug}
+                      className={`mobile-tool-list-item ${tool.accent} ${isActive ? "active" : ""}`}
+                      onClick={onClose}
+                    >
+                      <span className="mobile-tool-list-icon">
+                        <Icon size={18} />
                       </span>
-                      <span>{tool.name}</span>
+                      <span className="mobile-tool-list-name">{tool.name}</span>
                     </Link>
                   );
                 })}

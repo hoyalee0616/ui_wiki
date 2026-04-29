@@ -7,11 +7,11 @@ import { HeroMascot } from "@/components/brand/Logo";
 import { SectionDirectoryCard } from "@/components/cards/SectionDirectoryCard";
 import { SearchBar } from "@/components/common/SearchBar";
 import { SectionTitle } from "@/components/common/SectionTitle";
-import { RecentToolItem } from "@/components/cards/RecentToolItem";
 import { ToolCard } from "@/components/cards/ToolCard";
 import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
-import { highlightedSections, popularTools, recentTools, sectionMap } from "@/data/tools";
+import { RecentToolsSection } from "@/components/layout/RecentToolsSection";
+import { highlightedSections, popularTools, sectionMap } from "@/data/tools";
 
 export function HomeShell() {
   return (
@@ -82,14 +82,7 @@ export function HomeShell() {
             </div>
           </section>
 
-          <section className="content-section">
-            <SectionTitle title="최근 사용한 도구" action="전체 삭제" />
-            <div className="recent-list">
-              {recentTools.map((tool) => (
-                <RecentToolItem key={`${tool.name}-${tool.time}`} {...tool} />
-              ))}
-            </div>
-          </section>
+          <RecentToolsSection />
 
           <Footer />
       </div>
