@@ -48,14 +48,13 @@ export function clearRecentTools() {
 }
 
 export function useRecentTools() {
-  const [tools, setTools] = useState<RecentEntry[]>([]);
+  const [tools, setTools] = useState<RecentEntry[]>(() => getStored());
 
   const refresh = useCallback(() => {
     setTools(getStored());
   }, []);
 
   useEffect(() => {
-    refresh();
     const onStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) refresh();
     };

@@ -6,12 +6,12 @@ export function Footer() {
     <footer className="site-footer">
       <AdBanner />
       <div className="footer-links">
-        <Link href="/">소개</Link>
-        <Link href="/">이용약관</Link>
-        <Link href="/">개인정보처리방침</Link>
-        <Link href="/">문의</Link>
+        <Link href="/about">소개</Link>
+        <Link href="/terms">이용약관</Link>
+        <Link href="/privacy">개인정보처리방침</Link>
+        <Link href="/contact">문의</Link>
       </div>
-      <p>© 2024 Gomdol Tool. All rights reserved.</p>
+      <p>© 2026 Gomdol Tool. All rights reserved.</p>
     </footer>
   );
 }
