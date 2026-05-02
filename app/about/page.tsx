@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Breadcrumb } from "@/components/common/Breadcrumb";
-import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 
 export const metadata = {
@@ -109,7 +108,6 @@ export default function AboutPage() {
           홈으로 돌아가기
           <ArrowRight size={18} />
         </Link>
-        <Footer />
       </div>
     </DocsFrame>
   );

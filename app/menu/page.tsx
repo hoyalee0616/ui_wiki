@@ -4,7 +4,6 @@ import { ArrowRight } from "lucide-react";
 import { CompactToolRow } from "@/components/cards/CompactToolRow";
 import { SearchBar } from "@/components/common/SearchBar";
 import { SectionDirectoryCard } from "@/components/cards/SectionDirectoryCard";
-import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 import { sectionMap, toolSections } from "@/data/tools";
 
@@ -106,7 +105,6 @@ export default async function MenuPage({
           홈으로 돌아가기
           <ArrowRight size={18} />
         </Link>
-        <Footer />
       </div>
     </DocsFrame>
   );

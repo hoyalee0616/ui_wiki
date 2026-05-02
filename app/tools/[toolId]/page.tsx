@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { Breadcrumb } from "@/components/common/Breadcrumb";
 import { ToolCard } from "@/components/cards/ToolCard";
-import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 import { ToolWorkbench } from "@/components/tools/ToolWorkbench";
 import { ToolVisitTracker } from "@/components/tools/ToolVisitTracker";
@@ -75,7 +74,6 @@ export default async function ToolDetailPage({
             <ArrowRight size={16} />
           </Link>
         </div>
-        <Footer />
       </div>
     </DocsFrame>
   );

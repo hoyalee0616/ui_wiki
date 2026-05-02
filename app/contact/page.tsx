@@ -1,6 +1,5 @@
 import { Metadata } from "next";
 import { Breadcrumb } from "@/components/common/Breadcrumb";
-import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 import { ContactForm } from "@/components/contact/ContactForm";
 
@@ -27,7 +26,6 @@ export default function ContactPage() {
 
         <ContactForm />
 
-        <Footer />
       </div>
     </DocsFrame>
   );

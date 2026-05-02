@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { Footer } from "@/components/layout/Footer";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="ko">
       <body>
         {children}
+        <Footer />
         <Script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-ERX87YW610"

@@ -4,7 +4,7 @@ node_modules
 .gitignore
 .env.local
 .env*.local
-data
+data/inquiries.json
 README.md
 *.md
 Dockerfile

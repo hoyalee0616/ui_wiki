@@ -1,6 +1,5 @@
 import { Breadcrumb } from "@/components/common/Breadcrumb";
 import { ConvertForm } from "@/components/tools/ConvertForm";
-import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 
 export default function LengthConvertPage() {
@@ -21,7 +20,6 @@ export default function LengthConvertPage() {
         </section>
         <ConvertForm />
       </main>
-      <Footer />
     </div>
   );
 }

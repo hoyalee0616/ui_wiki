@@ -8,7 +8,6 @@ import { SectionDirectoryCard } from "@/components/cards/SectionDirectoryCard";
 import { SearchBar } from "@/components/common/SearchBar";
 import { SectionTitle } from "@/components/common/SectionTitle";
 import { ToolCard } from "@/components/cards/ToolCard";
-import { Footer } from "@/components/layout/Footer";
 import { DocsFrame } from "@/components/layout/DocsFrame";
 import { RecentToolsSection } from "@/components/layout/RecentToolsSection";
 import { highlightedSections, popularTools, sectionMap } from "@/data/tools";
@@ -84,7 +83,6 @@ export function HomeShell() {
 
           <RecentToolsSection />
 
-          <Footer />
       </div>
     </DocsFrame>
   );

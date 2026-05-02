@@ -1,6 +1,5 @@
 import { Breadcrumb } from "@/components/common/Breadcrumb";
 import { CalculatorPad } from "@/components/tools/CalculatorPad";
-import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 
 export default function CalculatorPage() {
@@ -21,7 +20,6 @@ export default function CalculatorPage() {
         </section>
         <CalculatorPad />
       </main>
-      <Footer />
     </div>
   );
 }
