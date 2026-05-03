@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LogOut, Trash2, Eye, EyeOff, Lightbulb, Bug, MessageSquare, Inbox } from "lucide-react";
+import { LogOut, Trash2, Eye, EyeOff, Lightbulb, Bug, MessageSquare, Inbox, ChevronLeft } from "lucide-react";
 import type { Inquiry } from "@/lib/inquiries";
 
 const TYPE_ICON = {
@@ -27,6 +27,7 @@ export function AdminShell({ inquiries: initial }: { inquiries: Inquiry[] }) {
   const [list, setList] = useState<Inquiry[]>(initial);
   const [selected, setSelected] = useState<Inquiry | null>(null);
   const [filter, setFilter] = useState<string>("전체");
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
 
   async function logout() {
     await fetch("/api/admin/logout", { method: "POST" });
@@ -55,6 +56,7 @@ export function AdminShell({ inquiries: initial }: { inquiries: Inquiry[] }) {
 
   function openItem(item: Inquiry) {
     setSelected(item);
+    setMobileView("detail");
     if (!item.read) handleRead(item.id);
   }
 
@@ -84,7 +86,7 @@ export function AdminShell({ inquiries: initial }: { inquiries: Inquiry[] }) {
 
       <div className="admin-body">
         {/* 사이드 리스트 */}
-        <aside className="admin-list-panel">
+        <aside className={`admin-list-panel ${mobileView === "detail" ? "admin-mobile-hidden" : ""}`}>
           {/* 필터 */}
           <div className="admin-filter-row">
             {FILTERS.map((f) => (
@@ -133,11 +135,19 @@ export function AdminShell({ inquiries: initial }: { inquiries: Inquiry[] }) {
         </aside>
 
         {/* 상세 */}
-        <main className="admin-detail-panel">
+        <main className={`admin-detail-panel ${mobileView === "list" ? "admin-mobile-hidden" : ""}`}>
           {selected ? (
             <div className="admin-detail">
               <div className="admin-detail-head">
                 <div>
+                  <button
+                    type="button"
+                    className="admin-back-btn"
+                    onClick={() => setMobileView("list")}
+                  >
+                    <ChevronLeft size={16} />
+                    목록으로
+                  </button>
                   <span className={`admin-detail-type ${TYPE_ACCENT[selected.type] ?? "blue"}`}>
                     {selected.type}
                   </span>

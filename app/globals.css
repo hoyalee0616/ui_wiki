@@ -6477,3 +6477,72 @@ button {
   min-height: 300px;
 }
 .admin-detail-empty p { margin: 0; font-size: 14px; }
+
+/* ── Admin Mobile ── */
+.admin-back-btn {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 180ms ease;
+}
+.admin-back-btn:hover { color: var(--text-primary); }
+
+@media (max-width: 767px) {
+  .admin-body {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 57px);
+  }
+
+  .admin-mobile-hidden {
+    display: none !important;
+  }
+
+  .admin-list-panel {
+    border-right: none;
+  }
+
+  .admin-detail-panel {
+    padding: 16px;
+  }
+
+  .admin-back-btn {
+    display: inline-flex;
+  }
+
+  .admin-detail-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .admin-delete-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .admin-header {
+    padding: 12px 16px;
+  }
+
+  .admin-header h1 {
+    font-size: 16px;
+  }
+
+  .admin-logout-btn span {
+    display: none;
+  }
+
+  .admin-login-card {
+    width: calc(100vw - 48px);
+    padding: 28px 20px;
+  }
+}
