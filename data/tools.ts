@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   Link2,
   Mail,
+  Music,
   NotebookPen,
   Percent,
   QrCode,
@@ -50,7 +51,8 @@ export type ToolSectionId =
   | "developer-tools"
   | "real-estate"
   | "business-calculators"
-  | "business-documents";
+  | "business-documents"
+  | "media";
 
 export interface ToolSection {
   id: ToolSectionId;
@@ -140,6 +142,15 @@ export const toolSections: ToolSection[] = [
     accent: "purple",
     icon: BriefcaseBusiness,
     stats: "6개 도구",
+  },
+  {
+    id: "media",
+    label: "미디어 도구",
+    href: "/menu#media",
+    description: "SNS 영상에서 음성을 추출하고 저장하는 미디어 유틸리티",
+    accent: "green",
+    icon: Music,
+    stats: "1개 도구",
   },
 ];
 
@@ -755,6 +766,19 @@ export const tools: ToolItem[] = [
     icon: QrCode,
     features: ["URL / 텍스트 / 전화 / 이메일 / Wi-Fi 지원", "크기·여백·색상 설정", "PNG 다운로드", "실시간 미리보기"],
     useCases: ["명함 QR", "행사 입장 링크", "Wi-Fi 공유", "제품 정보 연결"],
+    isNew: true,
+  },
+  {
+    id: "instagram-audio",
+    name: "인스타그램 음성 추출",
+    slug: "/tools/instagram-audio",
+    summary: "Instagram URL 입력만으로 고음질 MP3 추출 및 다운로드",
+    description: "Instagram 게시물·릴스·IGTV URL을 입력하면 서버에서 음성을 추출해 MP3 파일로 다운로드합니다. yt-dlp 기반으로 최고 음질을 유지합니다.",
+    sectionId: "media",
+    accent: "green",
+    icon: Music,
+    features: ["Instagram 게시물·릴스·IGTV 지원", "고음질 MP3 추출 (VBR 최고)", "URL 붙여넣기만으로 즉시 다운로드"],
+    useCases: ["배경음악 저장", "팟캐스트 클립 수집", "오프라인 청취용 저장"],
     isNew: true,
   },
   {

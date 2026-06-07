@@ -5054,7 +5054,127 @@ export function ToolWorkbench({
   if (sectionId === "developer-tools") return <DeveloperTools toolId={toolId} />;
   if (sectionId === "real-estate") return <RealEstateTools toolId={toolId} />;
   if (sectionId === "business-calculators") return <BusinessCalculators toolId={toolId} />;
+  if (sectionId === "media") return <MediaTools toolId={toolId} />;
   return <BusinessDocuments toolId={toolId} toolName={toolName} />;
+}
+
+/* ── Media Tools ─────────────────────────────────────────── */
+function MediaTools({ toolId }: { toolId: string }) {
+  if (toolId === "instagram-audio") return <InstagramAudioTool />;
+  return null;
+}
+
+type DownloadState = "idle" | "loading" | "done" | "error";
+
+function InstagramAudioTool() {
+  const [url, setUrl] = useState("");
+  const [state, setState] = useState<DownloadState>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleDownload() {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    setState("loading");
+    setErrorMsg("");
+
+    try {
+      const res = await fetch("/api/instagram-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `서버 오류 (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = "instagram_audio.mp3";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+
+      setState("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "알 수 없는 오류");
+      setState("error");
+    }
+  }
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head">
+        <strong>인스타그램 음성 추출</strong>
+        <span>URL 입력 → MP3 다운로드</span>
+      </div>
+
+      <div className="form-grid">
+        <label className="field-block">
+          <span>Instagram URL</span>
+          <input
+            className="tool-input"
+            type="url"
+            placeholder="https://www.instagram.com/p/..."
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              if (state !== "idle") setState("idle");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleDownload()}
+          />
+        </label>
+      </div>
+
+      <div className="tool-actions-row">
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={state === "loading" || !url.trim()}
+        >
+          <Download size={16} />
+          {state === "loading" ? "추출 중…" : "MP3 다운로드"}
+        </button>
+        {(state === "done" || state === "error") && (
+          <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
+            <RotateCcw size={16} /> 초기화
+          </button>
+        )}
+      </div>
+
+      {state === "loading" && (
+        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
+          서버에서 음성을 추출하고 있습니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
+        </p>
+      )}
+      {state === "done" && (
+        <p style={{ marginTop: 12, color: "var(--green)", fontSize: 13 }}>
+          ✅ 다운로드가 시작되었습니다. 브라우저 다운로드 폴더를 확인하세요.
+        </p>
+      )}
+      {state === "error" && (
+        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>
+          ❌ {errorMsg}
+        </p>
+      )}
+
+      <div style={{ marginTop: 20, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
+        <strong style={{ display: "block", marginBottom: 6 }}>URL 복사하는 법</strong>
+        <ol style={{ paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+          <li>인스타그램 게시물·릴스 열기</li>
+          <li>우상단 <strong>⋯</strong> 메뉴 클릭</li>
+          <li><strong>링크 복사</strong> 선택</li>
+          <li>위 입력란에 붙여넣기</li>
+        </ol>
+        <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 비공개 계정 게시물은 다운로드가 불가합니다.</p>
+      </div>
+    </section>
+  );
 }
 
 /* ── QR Code Tool ─────────────────────────────────────────── */
