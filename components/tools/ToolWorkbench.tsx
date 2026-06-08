@@ -5178,9 +5178,17 @@ function InstagramAudioTool() {
   );
 }
 
+type YtFormat = "audio-mp3" | "audio-m4a" | "video";
+
+const YT_FORMAT_OPTIONS: { value: YtFormat; label: string; desc: string }[] = [
+  { value: "audio-mp3", label: "🎵 MP3", desc: "음성 · 범용" },
+  { value: "audio-m4a", label: "🎵 M4A", desc: "음성 · 고품질 / Premiere 권장" },
+  { value: "video",     label: "🎬 MP4", desc: "영상 · H.264" },
+];
+
 function YoutubeDownloadTool() {
   const [url, setUrl] = useState("");
-  const [format, setFormat] = useState<"audio" | "video">("audio");
+  const [format, setFormat] = useState<YtFormat>("audio-mp3");
   const [state, setState] = useState<DownloadState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -5206,11 +5214,8 @@ function YoutubeDownloadTool() {
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
       const asciiMatch = disposition.match(/filename="([^"]+)"/i);
-      const filename = utf8Match
-        ? decodeURIComponent(utf8Match[1])
-        : asciiMatch
-          ? asciiMatch[1]
-          : format === "audio" ? "youtube_audio.mp3" : "youtube_video.mp4";
+      const fallback = format === "video" ? "youtube_video.mp4" : format === "audio-m4a" ? "youtube_audio.m4a" : "youtube_audio.mp3";
+      const filename = utf8Match ? decodeURIComponent(utf8Match[1]) : asciiMatch ? asciiMatch[1] : fallback;
 
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -5233,7 +5238,7 @@ function YoutubeDownloadTool() {
     <section className="detail-card workbench-card">
       <div className="workbench-head">
         <strong>유튜브 다운로드</strong>
-        <span>URL 입력 → MP3 또는 MP4 다운로드</span>
+        <span>URL 입력 → MP3 · M4A · MP4 다운로드</span>
       </div>
 
       <div className="form-grid">
@@ -5255,25 +5260,27 @@ function YoutubeDownloadTool() {
         <label className="field-block">
           <span>형식</span>
           <div style={{ display: "flex", gap: 8 }}>
-            {(["audio", "video"] as const).map((f) => (
+            {YT_FORMAT_OPTIONS.map((opt) => (
               <button
-                key={f}
+                key={opt.value}
                 type="button"
-                onClick={() => setFormat(f)}
+                onClick={() => setFormat(opt.value)}
                 style={{
                   flex: 1,
-                  padding: "8px 0",
+                  padding: "8px 4px",
                   borderRadius: 6,
-                  border: format === f ? "2px solid var(--accent)" : "2px solid var(--border)",
-                  background: format === f ? "var(--accent-bg, var(--surface-2))" : "var(--surface-1)",
-                  color: format === f ? "var(--accent)" : "var(--text-muted)",
-                  fontWeight: format === f ? 600 : 400,
+                  border: format === opt.value ? "2px solid var(--accent)" : "2px solid var(--border)",
+                  background: format === opt.value ? "var(--accent-bg, var(--surface-2))" : "var(--surface-1)",
+                  color: format === opt.value ? "var(--accent)" : "var(--text-muted)",
+                  fontWeight: format === opt.value ? 600 : 400,
                   cursor: "pointer",
-                  fontSize: 14,
+                  fontSize: 13,
+                  lineHeight: 1.4,
                   transition: "all 0.15s",
                 }}
               >
-                {f === "audio" ? "🎵 MP3 (음성)" : "🎬 MP4 (영상)"}
+                <div>{opt.label}</div>
+                <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{opt.desc}</div>
               </button>
             ))}
           </div>
@@ -5287,7 +5294,7 @@ function YoutubeDownloadTool() {
           disabled={state === "loading" || !url.trim()}
         >
           <Download size={16} />
-          {state === "loading" ? "다운로드 중…" : format === "audio" ? "MP3 다운로드" : "MP4 다운로드"}
+          {state === "loading" ? "다운로드 중…" : format === "video" ? "MP4 다운로드" : format === "audio-m4a" ? "M4A 다운로드" : "MP3 다운로드"}
         </button>
         {(state === "done" || state === "error") && (
           <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
@@ -5298,7 +5305,7 @@ function YoutubeDownloadTool() {
 
       {state === "loading" && (
         <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
-          서버에서 {format === "audio" ? "음성" : "영상"}을 처리하고 있습니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
+          서버에서 {format === "video" ? "영상" : "음성"}을 처리하고 있습니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
         </p>
       )}
       {state === "done" && (

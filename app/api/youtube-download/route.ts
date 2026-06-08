@@ -41,26 +41,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const isAudio = format === "audio";
+  // format: "audio-mp3" | "audio-m4a" | "video"
+  const isVideo = format === "video";
+  const audioFmt = format === "audio-m4a" ? "m4a" : "mp3";
+  const isAudio = !isVideo;
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
 
   const rawTitle = await fetchTitle(ytdlpPath, url.trim());
-  const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isAudio ? "youtube_audio" : "youtube_video");
-  const ext = isAudio ? "mp3" : "mp4";
+  const ext = isVideo ? "mp4" : audioFmt;
+  const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isAudio ? `youtube_audio` : "youtube_video");
   const filename = `${safeTitle}.${ext}`;
-  // filename= 파라미터는 ASCII만 허용 — 비ASCII 문자는 언더스코어로 대체
   const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
   const encodedFilename = encodeURIComponent(filename);
 
-  const contentType = isAudio ? "audio/mpeg" : "video/mp4";
+  const contentType = isVideo ? "video/mp4" : audioFmt === "m4a" ? "audio/mp4" : "audio/mpeg";
   const dispositionHeader = `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
 
   if (isAudio) {
-    // 음성은 stdout 스트리밍으로 바로 전송
     const args = [
       "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
+      "--audio-format", audioFmt,
+      ...(audioFmt === "mp3" ? ["--audio-quality", "0"] : []),
       "--no-playlist",
       "--output", "-",
       "--quiet",
