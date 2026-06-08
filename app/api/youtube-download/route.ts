@@ -108,7 +108,8 @@ export async function POST(req: NextRequest) {
   try {
     await new Promise<void>((resolve, reject) => {
       const args = [
-        "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+        "--format", "bestvideo+bestaudio/best",
+        "--format-sort", "vcodec:h264,ext:mp4",
         "--merge-output-format", "mp4",
         "--no-playlist",
         "--output", tmpFile,
