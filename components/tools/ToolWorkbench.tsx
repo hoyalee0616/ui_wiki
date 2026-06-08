@@ -5055,6 +5055,7 @@ export function ToolWorkbench({
   if (sectionId === "real-estate") return <RealEstateTools toolId={toolId} />;
   if (sectionId === "business-calculators") return <BusinessCalculators toolId={toolId} />;
   if (sectionId === "media") return <MediaTools toolId={toolId} />;
+  if (sectionId === "life") return <LifeTools toolId={toolId} />;
   return <BusinessDocuments toolId={toolId} toolName={toolName} />;
 }
 
@@ -5321,6 +5322,188 @@ function YoutubeDownloadTool() {
         </ul>
         <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 저작권이 있는 콘텐츠는 개인 용도로만 사용하세요.</p>
       </div>
+    </section>
+  );
+}
+
+/* ── Life Tools ───────────────────────────────────────────── */
+function LifeTools({ toolId }: { toolId: string }) {
+  if (toolId === "parcel-track") return <ParcelTrackTool />;
+  return null;
+}
+
+interface Carrier { code: string; name: string; }
+interface TrackEvent { time: string; status: string; location: string; description: string; }
+interface ArrivalPrediction { probability: number; estimatedDate: string | null; message: string; confidence: "high" | "medium" | "low"; }
+interface TrackResult { carrierName: string; trackingNumber: string; status: string; events: TrackEvent[]; arrivalPrediction: ArrivalPrediction; }
+
+function ParcelTrackTool() {
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [carrierCode, setCarrierCode] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [result, setResult] = useState<TrackResult | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    fetch("/api/parcel-track")
+      .then((r) => r.json())
+      .then((d) => setCarriers(d.carriers ?? []));
+  }, []);
+
+  async function handleTrack() {
+    const tn = trackingNumber.trim();
+    if (!tn) return;
+    setState("loading");
+    setErrorMsg("");
+    setResult(null);
+    try {
+      const res = await fetch("/api/parcel-track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trackingNumber: tn, carrierCode: carrierCode || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `오류 (${res.status})`);
+      setResult(data);
+      setState("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "알 수 없는 오류");
+      setState("error");
+    }
+  }
+
+  const probColor = (p: number) =>
+    p >= 80 ? "var(--green)" : p >= 50 ? "var(--orange, #f97316)" : "var(--text-muted)";
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head">
+        <strong>택배 조회</strong>
+        <span>운송장 번호 입력 → 도착 예측까지 한 번에</span>
+      </div>
+
+      <div className="form-grid">
+        <label className="field-block">
+          <span>택배사 <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(미선택 시 자동 감지)</span></span>
+          <select
+            className="tool-input"
+            value={carrierCode}
+            onChange={(e) => setCarrierCode(e.target.value)}
+          >
+            <option value="">자동 감지</option>
+            {carriers.map((c) => (
+              <option key={c.code} value={c.code}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field-block">
+          <span>운송장 번호</span>
+          <input
+            className="tool-input"
+            type="text"
+            placeholder="숫자만 입력 (예: 1234567890123)"
+            value={trackingNumber}
+            onChange={(e) => { setTrackingNumber(e.target.value); if (state !== "idle") setState("idle"); }}
+            onKeyDown={(e) => e.key === "Enter" && handleTrack()}
+          />
+        </label>
+      </div>
+
+      <div className="tool-actions-row">
+        <button type="button" onClick={handleTrack} disabled={state === "loading" || !trackingNumber.trim()}>
+          {state === "loading" ? "조회 중…" : "배송 조회"}
+        </button>
+        {(state === "done" || state === "error") && (
+          <button type="button" onClick={() => { setTrackingNumber(""); setResult(null); setState("idle"); setErrorMsg(""); }}>
+            <RotateCcw size={16} /> 초기화
+          </button>
+        )}
+      </div>
+
+      {state === "loading" && (
+        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>배송 정보를 불러오는 중입니다…</p>
+      )}
+
+      {state === "error" && (
+        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13, whiteSpace: "pre-line" }}>❌ {errorMsg}</p>
+      )}
+
+      {result && (
+        <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* 택배사 + 운송장 */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ padding: "4px 10px", background: "var(--surface-2)", borderRadius: 6, fontSize: 13, fontWeight: 600 }}>
+              {result.carrierName}
+            </span>
+            <span style={{ padding: "4px 10px", background: "var(--surface-2)", borderRadius: 6, fontSize: 13, color: "var(--text-muted)" }}>
+              {result.trackingNumber}
+            </span>
+          </div>
+
+          {/* 도착 예측 카드 */}
+          <div style={{ padding: "16px 18px", background: "var(--surface-2)", borderRadius: 10, border: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+              <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
+                <svg viewBox="0 0 56 56" style={{ transform: "rotate(-90deg)" }} width={56} height={56}>
+                  <circle cx={28} cy={28} r={22} fill="none" stroke="var(--border)" strokeWidth={5} />
+                  <circle
+                    cx={28} cy={28} r={22} fill="none"
+                    stroke={probColor(result.arrivalPrediction.probability)}
+                    strokeWidth={5}
+                    strokeDasharray={`${2 * Math.PI * 22 * result.arrivalPrediction.probability / 100} ${2 * Math.PI * 22}`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: probColor(result.arrivalPrediction.probability) }}>
+                  {result.arrivalPrediction.probability}%
+                </span>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>
+                  {result.arrivalPrediction.estimatedDate ?? "예측 불가"}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>도착 예상</div>
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--text-secondary, var(--text-muted))", margin: 0, lineHeight: 1.6 }}>
+              {result.arrivalPrediction.message}
+            </p>
+          </div>
+
+          {/* 배송 이벤트 타임라인 */}
+          {result.events.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>배송 현황</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {[...result.events].reverse().map((ev, i) => (
+                  <div key={i} style={{ display: "flex", gap: 12, position: "relative", paddingBottom: i < result.events.length - 1 ? 14 : 0 }}>
+                    {/* 타임라인 선 */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: i === 0 ? "var(--accent, #3b82f6)" : "var(--border)", border: "2px solid var(--border)", flexShrink: 0, marginTop: 3 }} />
+                      {i < result.events.length - 1 && (
+                        <div style={{ width: 2, flex: 1, background: "var(--border)", marginTop: 2 }} />
+                      )}
+                    </div>
+                    <div style={{ paddingBottom: 4, flex: 1 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: i === 0 ? "var(--accent, #3b82f6)" : "inherit" }}>
+                          {ev.status}
+                        </span>
+                        {ev.location && (
+                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{ev.location}</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{ev.time}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
