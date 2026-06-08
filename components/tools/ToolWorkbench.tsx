@@ -5061,6 +5061,7 @@ export function ToolWorkbench({
 /* ── Media Tools ─────────────────────────────────────────── */
 function MediaTools({ toolId }: { toolId: string }) {
   if (toolId === "instagram-audio") return <InstagramAudioTool />;
+  if (toolId === "youtube-download") return <YoutubeDownloadTool />;
   return null;
 }
 
@@ -5172,6 +5173,144 @@ function InstagramAudioTool() {
           <li>위 입력란에 붙여넣기</li>
         </ol>
         <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 비공개 계정 게시물은 다운로드가 불가합니다.</p>
+      </div>
+    </section>
+  );
+}
+
+function YoutubeDownloadTool() {
+  const [url, setUrl] = useState("");
+  const [format, setFormat] = useState<"audio" | "video">("audio");
+  const [state, setState] = useState<DownloadState>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleDownload() {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    setState("loading");
+    setErrorMsg("");
+
+    try {
+      const res = await fetch("/api/youtube-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed, format }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `서버 오류 (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = format === "audio" ? "youtube_audio.mp3" : "youtube_video.mp4";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+
+      setState("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "알 수 없는 오류");
+      setState("error");
+    }
+  }
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head">
+        <strong>유튜브 다운로드</strong>
+        <span>URL 입력 → MP3 또는 MP4 다운로드</span>
+      </div>
+
+      <div className="form-grid">
+        <label className="field-block">
+          <span>YouTube URL</span>
+          <input
+            className="tool-input"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              if (state !== "idle") setState("idle");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleDownload()}
+          />
+        </label>
+
+        <label className="field-block">
+          <span>형식</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(["audio", "video"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFormat(f)}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  border: format === f ? "2px solid var(--accent)" : "2px solid var(--border)",
+                  background: format === f ? "var(--accent-bg, var(--surface-2))" : "var(--surface-1)",
+                  color: format === f ? "var(--accent)" : "var(--text-muted)",
+                  fontWeight: format === f ? 600 : 400,
+                  cursor: "pointer",
+                  fontSize: 14,
+                  transition: "all 0.15s",
+                }}
+              >
+                {f === "audio" ? "🎵 MP3 (음성)" : "🎬 MP4 (영상)"}
+              </button>
+            ))}
+          </div>
+        </label>
+      </div>
+
+      <div className="tool-actions-row">
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={state === "loading" || !url.trim()}
+        >
+          <Download size={16} />
+          {state === "loading" ? "다운로드 중…" : format === "audio" ? "MP3 다운로드" : "MP4 다운로드"}
+        </button>
+        {(state === "done" || state === "error") && (
+          <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
+            <RotateCcw size={16} /> 초기화
+          </button>
+        )}
+      </div>
+
+      {state === "loading" && (
+        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
+          서버에서 {format === "audio" ? "음성" : "영상"}을 처리하고 있습니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
+        </p>
+      )}
+      {state === "done" && (
+        <p style={{ marginTop: 12, color: "var(--green)", fontSize: 13 }}>
+          ✅ 다운로드가 시작되었습니다. 브라우저 다운로드 폴더를 확인하세요.
+        </p>
+      )}
+      {state === "error" && (
+        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>
+          ❌ {errorMsg}
+        </p>
+      )}
+
+      <div style={{ marginTop: 20, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
+        <strong style={{ display: "block", marginBottom: 6 }}>지원 URL 형식</strong>
+        <ul style={{ paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+          <li>일반 영상: youtube.com/watch?v=XXXXX</li>
+          <li>Shorts: youtube.com/shorts/XXXXX</li>
+          <li>단축 URL: youtu.be/XXXXX</li>
+        </ul>
+        <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 저작권이 있는 콘텐츠는 개인 용도로만 사용하세요.</p>
       </div>
     </section>
   );
