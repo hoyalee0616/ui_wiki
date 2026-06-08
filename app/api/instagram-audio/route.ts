@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "audio/mpeg",
       "Content-Disposition": 'attachment; filename="instagram_audio.mp3"',
       "Cache-Control": "no-store",
+      "Content-Encoding": "identity",
     },
   });
 }

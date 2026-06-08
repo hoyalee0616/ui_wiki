@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": contentType,
         "Content-Disposition": dispositionHeader,
         "Cache-Control": "no-store",
+        "Content-Encoding": "identity",
       },
     });
   }
