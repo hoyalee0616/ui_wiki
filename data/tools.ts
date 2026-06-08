@@ -21,8 +21,6 @@ import {
   Mail,
   Music,
   MonitorPlay,
-  Package,
-  PackageSearch,
   NotebookPen,
   Percent,
   QrCode,
@@ -55,8 +53,7 @@ export type ToolSectionId =
   | "real-estate"
   | "business-calculators"
   | "business-documents"
-  | "media"
-  | "life";
+  | "media";
 
 export interface ToolSection {
   id: ToolSectionId;
@@ -155,15 +152,6 @@ export const toolSections: ToolSection[] = [
     accent: "green",
     icon: Music,
     stats: "2개 도구",
-  },
-  {
-    id: "life",
-    label: "생활 편의",
-    href: "/menu#life",
-    description: "택배 조회, 도착 예측 등 일상에서 자주 쓰는 편의 도구 모음",
-    accent: "blue",
-    icon: Package,
-    stats: "1개 도구",
   },
 ];
 
@@ -805,19 +793,6 @@ export const tools: ToolItem[] = [
     icon: Music,
     features: ["Instagram 게시물·릴스·IGTV 지원", "고음질 MP3 추출 (VBR 최고)", "URL 붙여넣기만으로 즉시 다운로드"],
     useCases: ["배경음악 저장", "팟캐스트 클립 수집", "오프라인 청취용 저장"],
-    isNew: true,
-  },
-  {
-    id: "parcel-track",
-    name: "택배 조회",
-    slug: "/tools/parcel-track",
-    summary: "운송장 번호만 입력하면 택배사 자동 감지 후 도착 예측까지 한 번에",
-    description: "CJ대한통운·한진·롯데·우체국 등 주요 택배사를 자동 감지하여 실시간 배송 현황을 조회하고, 현재 상태 기반으로 도착 예상 시간과 확률을 알려드립니다.",
-    sectionId: "life",
-    accent: "blue",
-    icon: PackageSearch,
-    features: ["택배사 자동 감지", "실시간 배송 추적", "도착 확률 및 예상 일정 제공"],
-    useCases: ["주문한 상품 배송 현황 확인", "언제 받을 수 있는지 예측", "배송 지연 여부 파악"],
     isNew: true,
   },
   {
