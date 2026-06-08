@@ -48,10 +48,12 @@ export async function POST(req: NextRequest) {
   const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isAudio ? "youtube_audio" : "youtube_video");
   const ext = isAudio ? "mp3" : "mp4";
   const filename = `${safeTitle}.${ext}`;
+  // filename= 파라미터는 ASCII만 허용 — 비ASCII 문자는 언더스코어로 대체
+  const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
   const encodedFilename = encodeURIComponent(filename);
 
   const contentType = isAudio ? "audio/mpeg" : "video/mp4";
-  const dispositionHeader = `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`;
+  const dispositionHeader = `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
 
   if (isAudio) {
     // 음성은 stdout 스트리밍으로 바로 전송
@@ -106,7 +108,7 @@ export async function POST(req: NextRequest) {
   try {
     await new Promise<void>((resolve, reject) => {
       const args = [
-        "--format", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "--no-playlist",
         "--output", tmpFile,
