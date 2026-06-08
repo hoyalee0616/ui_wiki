@@ -25,6 +25,11 @@ ENV HOSTNAME="0.0.0.0"
 # 문의 데이터 저장 경로 (볼륨 마운트 대상)
 ENV INQUIRIES_DATA_DIR=/app/data
 
+# yt-dlp + ffmpeg 설치 (YouTube/Instagram 다운로드용)
+RUN apk add --no-cache ffmpeg curl python3 && \
+    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
