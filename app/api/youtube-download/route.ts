@@ -19,7 +19,7 @@ function sanitizeFilename(name: string) {
 
 async function fetchTitle(ytdlpPath: string, url: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(ytdlpPath, ["--print", "title", "--no-playlist", url], {
+    const { stdout } = await execFileAsync(ytdlpPath, ["--print", "title", "--no-playlist", "--extractor-args", "youtube:player_client=android,web", url], {
       timeout: 15000,
     });
     return stdout.trim();
@@ -85,23 +85,27 @@ export async function POST(req: NextRequest) {
 
   const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
+  // android 클라이언트로 봇 감지 우회
+  const commonArgs = [
+    "--extractor-args", "youtube:player_client=android,web",
+    "--no-playlist",
+    "--output", tmpFile,
+    "--quiet",
+  ];
+
   const args = isVideo
     ? [
         "--format", "bestvideo+bestaudio/best",
         "--format-sort", "vcodec:h264,ext:mp4",
         "--merge-output-format", "mp4",
-        "--no-playlist",
-        "--output", tmpFile,
-        "--quiet",
+        ...commonArgs,
         url.trim(),
       ]
     : [
         "--extract-audio",
         "--audio-format", audioFmt,
         ...(audioFmt === "mp3" ? ["--audio-quality", "0"] : []),
-        "--no-playlist",
-        "--output", tmpFile,
-        "--quiet",
+        ...commonArgs,
         url.trim(),
       ];
 
