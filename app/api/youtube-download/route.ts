@@ -22,7 +22,7 @@ async function fetchTitle(ytdlpPath: string, url: string, cookiesFile?: string):
     const args = [
       "--print", "title",
       "--no-playlist",
-      "--extractor-args", "youtube:player_client=ios,web",
+      "--extractor-args", "youtube:player_client=web_safari,web,tv",
     ];
     if (cookiesFile) args.push("--cookies", cookiesFile);
     args.push(url);
@@ -91,10 +91,10 @@ export async function POST(req: NextRequest) {
 
   const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
-  // 봇 감지 우회: 쿠키 파일 + player_client
+  // 봇 감지 우회: 쿠키 파일 + player_client (ios는 PO토큰 요구로 제외)
   const commonArgs = [
     "--cookies", cookiesFile,
-    "--extractor-args", "youtube:player_client=ios,web",
+    "--extractor-args", "youtube:player_client=web_safari,web,tv",
     "--no-playlist",
     "--output", tmpFile,
     "--quiet",
