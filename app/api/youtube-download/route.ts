@@ -17,6 +17,20 @@ function sanitizeFilename(name: string) {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 200);
 }
 
+function getCookiesFile() {
+  return process.env.YT_COOKIES_PATH?.trim() || undefined;
+}
+
+function cleanErrorMessage(message: string) {
+  return message
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .split("\n")
+    .filter((line) => line.trim() && !line.trim().startsWith("Traceback"))
+    .slice(0, 8)
+    .join("\n")
+    .trim();
+}
+
 async function fetchTitle(ytdlpPath: string, url: string, cookiesFile?: string): Promise<string> {
   try {
     const args = [
@@ -73,7 +87,7 @@ export async function POST(req: NextRequest) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ext = isVideo ? "mp4" : audioFmt;
 
-  const cookiesFile = process.env.YT_COOKIES_PATH || "/home/ubuntu/yt_cookies.txt";
+  const cookiesFile = getCookiesFile();
   const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookiesFile);
   const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "youtube_video" : "youtube_audio");
   const filename = `${safeTitle}.${ext}`;
@@ -91,14 +105,16 @@ export async function POST(req: NextRequest) {
 
   const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
-  // 봇 감지 우회: 쿠키 파일 + player_client (ios는 PO토큰 요구로 제외)
+  // 봇 감지 우회: 쿠키 파일이 설정된 서버에서는 쿠키를 사용하고, 로컬처럼 파일이 없으면 생략합니다.
   const commonArgs = [
-    "--cookies", cookiesFile,
     "--extractor-args", "youtube:player_client=web_safari,web,tv",
     "--no-playlist",
     "--output", tmpFile,
     "--quiet",
   ];
+  if (cookiesFile) {
+    commonArgs.unshift("--cookies", cookiesFile);
+  }
 
   const args = isVideo
     ? [
@@ -120,7 +136,8 @@ export async function POST(req: NextRequest) {
     await downloadToFile(ytdlpPath, args);
   } catch (err) {
     unlink(tmpFile, () => {});
-    const msg = err instanceof Error ? err.message : "다운로드 실패";
+    const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+    const msg = cleanErrorMessage(rawMsg) || "다운로드 실패";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 
