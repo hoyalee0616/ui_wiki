@@ -17,11 +17,16 @@ function sanitizeFilename(name: string) {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 200);
 }
 
-async function fetchTitle(ytdlpPath: string, url: string): Promise<string> {
+async function fetchTitle(ytdlpPath: string, url: string, cookiesFile?: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(ytdlpPath, ["--print", "title", "--no-playlist", "--extractor-args", "youtube:player_client=android,web", url], {
-      timeout: 15000,
-    });
+    const args = [
+      "--print", "title",
+      "--no-playlist",
+      "--extractor-args", "youtube:player_client=ios,web",
+    ];
+    if (cookiesFile) args.push("--cookies", cookiesFile);
+    args.push(url);
+    const { stdout } = await execFileAsync(ytdlpPath, args, { timeout: 15000 });
     return stdout.trim();
   } catch {
     return "";
@@ -68,7 +73,8 @@ export async function POST(req: NextRequest) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ext = isVideo ? "mp4" : audioFmt;
 
-  const rawTitle = await fetchTitle(ytdlpPath, url.trim());
+  const cookiesFile = process.env.YT_COOKIES_PATH || "/home/ubuntu/yt_cookies.txt";
+  const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookiesFile);
   const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "youtube_video" : "youtube_audio");
   const filename = `${safeTitle}.${ext}`;
   const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
@@ -85,8 +91,9 @@ export async function POST(req: NextRequest) {
 
   const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
-  // android 클라이언트로 봇 감지 우회
+  // 봇 감지 우회: 쿠키 파일 + player_client
   const commonArgs = [
+    "--cookies", cookiesFile,
     "--extractor-args", "youtube:player_client=ios,web",
     "--no-playlist",
     "--output", tmpFile,
