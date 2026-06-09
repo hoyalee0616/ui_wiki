@@ -1,12 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { spawn, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createReadStream, unlink } from "node:fs";
+import { createReadStream, stat, unlink } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
+const statAsync = promisify(stat);
 
 export const maxDuration = 180;
 
@@ -27,6 +28,27 @@ async function fetchTitle(ytdlpPath: string, url: string): Promise<string> {
   }
 }
 
+async function downloadToFile(ytdlpPath: string, args: string[]): Promise<void> {
+  await execFileAsync(ytdlpPath, args, { maxBuffer: 1024 * 1024 * 1024 });
+}
+
+function streamFile(tmpFile: string): ReadableStream {
+  return new ReadableStream({
+    start(controller) {
+      const rs = createReadStream(tmpFile);
+      rs.on("data", (chunk) => controller.enqueue(chunk));
+      rs.on("end", () => {
+        controller.close();
+        unlink(tmpFile, () => {});
+      });
+      rs.on("error", (err) => {
+        controller.error(err);
+        unlink(tmpFile, () => {});
+      });
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
   const { url, format } = await req.json();
 
@@ -41,75 +63,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // format: "audio-mp3" | "audio-m4a" | "video"
   const isVideo = format === "video";
   const audioFmt = format === "audio-m4a" ? "m4a" : "mp3";
-  const isAudio = !isVideo;
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
+  const ext = isVideo ? "mp4" : audioFmt;
 
   const rawTitle = await fetchTitle(ytdlpPath, url.trim());
-  const ext = isVideo ? "mp4" : audioFmt;
-  const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isAudio ? `youtube_audio` : "youtube_video");
+  const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "youtube_video" : "youtube_audio");
   const filename = `${safeTitle}.${ext}`;
   const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
   const encodedFilename = encodeURIComponent(filename);
 
   const contentType = isVideo ? "video/mp4" : audioFmt === "m4a" ? "audio/mp4" : "audio/mpeg";
   const dispositionHeader = `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+  const commonHeaders = {
+    "Content-Type": contentType,
+    "Content-Disposition": dispositionHeader,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
 
-  if (isAudio) {
-    const args = [
-      "--extract-audio",
-      "--audio-format", audioFmt,
-      ...(audioFmt === "mp3" ? ["--audio-quality", "0"] : []),
-      "--no-playlist",
-      "--output", "-",
-      "--quiet",
-      url.trim(),
-    ];
+  const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
-    const stream = new ReadableStream({
-      start(controller) {
-        const proc = spawn(ytdlpPath, args);
-        let hasData = false;
-
-        proc.stdout.on("data", (chunk: Buffer) => {
-          hasData = true;
-          controller.enqueue(chunk);
-        });
-
-        proc.stderr.on("data", (chunk: Buffer) => {
-          console.error("[yt-dlp]", chunk.toString());
-        });
-
-        proc.on("close", (code) => {
-          if (!hasData || code !== 0) {
-            controller.error(new Error(`yt-dlp 오류 (코드 ${code})`));
-          } else {
-            controller.close();
-          }
-        });
-
-        proc.on("error", (err) => controller.error(err));
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": dispositionHeader,
-        "Cache-Control": "no-store",
-        "Content-Encoding": "identity",
-      },
-    });
-  }
-
-  // 영상은 병합이 필요하므로 임시 파일로 다운로드 후 스트리밍
-  const tmpFile = join(tmpdir(), `yt-${randomUUID()}.mp4`);
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const args = [
+  const args = isVideo
+    ? [
         "--format", "bestvideo+bestaudio/best",
         "--format-sort", "vcodec:h264,ext:mp4",
         "--merge-output-format", "mp4",
@@ -117,47 +94,36 @@ export async function POST(req: NextRequest) {
         "--output", tmpFile,
         "--quiet",
         url.trim(),
+      ]
+    : [
+        "--extract-audio",
+        "--audio-format", audioFmt,
+        ...(audioFmt === "mp3" ? ["--audio-quality", "0"] : []),
+        "--no-playlist",
+        "--output", tmpFile,
+        "--quiet",
+        url.trim(),
       ];
 
-      const proc = spawn(ytdlpPath, args);
-
-      proc.stderr.on("data", (chunk: Buffer) => {
-        console.error("[yt-dlp]", chunk.toString());
-      });
-
-      proc.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`yt-dlp 오류 (코드 ${code})`));
-      });
-
-      proc.on("error", reject);
-    });
+  try {
+    await downloadToFile(ytdlpPath, args);
   } catch (err) {
     unlink(tmpFile, () => {});
     const msg = err instanceof Error ? err.message : "다운로드 실패";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 
-  const fileStream = new ReadableStream({
-    start(controller) {
-      const rs = createReadStream(tmpFile);
-      rs.on("data", (chunk) => controller.enqueue(chunk));
-      rs.on("end", () => {
-        controller.close();
-        unlink(tmpFile, () => {});
-      });
-      rs.on("error", (err) => {
-        controller.error(err);
-        unlink(tmpFile, () => {});
-      });
-    },
-  });
+  // 파일 크기를 Content-Length로 전달 → 브라우저가 압축 해제 시도 안 함
+  let contentLength: string | undefined;
+  try {
+    const s = await statAsync(tmpFile);
+    contentLength = String(s.size);
+  } catch {}
 
-  return new Response(fileStream, {
+  return new Response(streamFile(tmpFile), {
     headers: {
-      "Content-Type": contentType,
-      "Content-Disposition": dispositionHeader,
-      "Cache-Control": "no-store",
+      ...commonHeaders,
+      ...(contentLength ? { "Content-Length": contentLength } : {}),
     },
   });
 }
