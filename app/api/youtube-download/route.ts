@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
   // android 클라이언트로 봇 감지 우회
   const commonArgs = [
-    "--extractor-args", "youtube:player_client=android,web",
+    "--extractor-args", "youtube:player_client=ios,web",
     "--no-playlist",
     "--output", tmpFile,
     "--quiet",
