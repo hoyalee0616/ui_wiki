@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     try {
       await new Promise<void>((resolve, reject) => {
         const proc = spawn(ytdlpPath, [
-          "--format", "bestvideo[ext=mp4]+bestaudio/best",
+          "--format", "bestvideo[vcodec^=avc1]+bestaudio/bestvideo[ext=mp4]+bestaudio/best",
           "--merge-output-format", "mp4",
           "--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -b:a 256k -ar 44100 -ac 2",
           "--no-playlist",
