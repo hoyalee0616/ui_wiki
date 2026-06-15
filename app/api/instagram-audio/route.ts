@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   }
 
   const isInstagram = /instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+/.test(url);
-  const isYoutube = /youtube\.com\/watch|youtu\.be\//.test(url);
+  const isYoutube = /youtube\.com\/(watch|shorts)|youtu\.be\//.test(url);
 
   if (!isInstagram && !isYoutube) {
     return NextResponse.json(
