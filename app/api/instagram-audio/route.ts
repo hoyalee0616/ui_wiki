@@ -1,7 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { createReadStream, unlink } from "node:fs";
+import { promisify } from "node:util";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 export const maxDuration = 120;
+
+const execFileAsync = promisify(execFile);
 
 export async function POST(req: NextRequest) {
   const { url } = await req.json();
@@ -10,71 +17,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "URL이 필요합니다." }, { status: 400 });
   }
 
-  // 계정 릴스 목록 페이지 감지 (예: instagram.com/username/reels/)
   const isProfileReelsPage = /instagram\.com\/[^/]+\/reels\/?$/.test(url);
   if (isProfileReelsPage) {
     return NextResponse.json(
-      { error: "계정의 릴스 목록 페이지는 지원하지 않습니다.\n개별 릴스 영상을 열고 '⋯ → 링크 복사'로 URL을 가져오세요.\n예) instagram.com/reels/XXXXX/" },
+      { error: "계정의 릴스 목록 페이지는 지원하지 않습니다. 개별 릴스 영상을 열고 '⋯ → 링크 복사'로 URL을 가져오세요." },
       { status: 400 },
     );
   }
 
-  const isInstagram =
-    /^https?:\/\/(www\.)?instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+/.test(url);
+  const isInstagram = /instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+/.test(url);
+  const isYoutube = /youtube\.com\/watch|youtu\.be\//.test(url);
 
-  if (!isInstagram) {
+  if (!isInstagram && !isYoutube) {
     return NextResponse.json(
-      { error: "개별 게시물·릴스 URL을 입력해 주세요.\n예) instagram.com/reels/XXXXX/ 또는 instagram.com/p/XXXXX/" },
+      { error: "Instagram 또는 YouTube URL을 입력해 주세요." },
       { status: 400 },
     );
   }
 
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
+  const tmpFile = join(tmpdir(), `audio_${randomUUID()}.mp3`);
 
-  const stream = new ReadableStream({
-    start(controller) {
-      const args = [
-        "--extract-audio",
-        "--audio-format", "mp3",
-        "--audio-quality", "0",
-        "--no-playlist",
-        "--output", "-",
-        "--quiet",
-        url,
-      ];
+  try {
+    await execFileAsync(ytdlpPath, [
+      "--extract-audio",
+      "--audio-format", "mp3",
+      "--audio-quality", "0",
+      "--no-playlist",
+      "--output", tmpFile,
+      "--quiet",
+      url,
+    ], { timeout: 110_000 });
 
-      const proc = spawn(ytdlpPath, args);
-      let hasData = false;
+    const fileStream = createReadStream(tmpFile);
 
-      proc.stdout.on("data", (chunk: Buffer) => {
-        hasData = true;
-        controller.enqueue(chunk);
-      });
+    // 스트리밍 후 임시 파일 삭제
+    fileStream.on("close", () => {
+      unlink(tmpFile, () => {});
+    });
 
-      proc.stderr.on("data", (chunk: Buffer) => {
-        console.error("[yt-dlp]", chunk.toString());
-      });
+    const filename = isYoutube ? "youtube_audio.mp3" : "instagram_audio.mp3";
 
-      proc.on("close", (code) => {
-        if (!hasData || code !== 0) {
-          controller.error(new Error(`yt-dlp 오류 (코드 ${code})`));
-        } else {
-          controller.close();
-        }
-      });
-
-      proc.on("error", (err) => {
-        controller.error(err);
-      });
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "audio/mpeg",
-      "Content-Disposition": 'attachment; filename="instagram_audio.mp3"',
-      "Cache-Control": "no-store",
-      "Content-Encoding": "identity",
-    },
-  });
+    return new Response(fileStream as unknown as ReadableStream, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (err) {
+    unlink(tmpFile, () => {});
+    console.error("[yt-dlp error]", err);
+    return NextResponse.json(
+      { error: "다운로드에 실패했습니다. 비공개 계정이거나 삭제된 영상일 수 있습니다." },
+      { status: 500 },
+    );
+  }
 }
