@@ -5067,8 +5067,17 @@ function MediaTools({ toolId }: { toolId: string }) {
 
 type DownloadState = "idle" | "loading" | "done" | "error";
 
+type MediaFormat = "mp3" | "wav" | "mp4";
+
+const MEDIA_FORMAT_OPTIONS: { value: MediaFormat; icon: string; label: string; desc: string }[] = [
+  { value: "mp3",  icon: "♪", label: "MP3",  desc: "음성 · 범용" },
+  { value: "wav",  icon: "♪", label: "WAV",  desc: "음성 · Premiere 권장" },
+  { value: "mp4",  icon: "▶", label: "MP4",  desc: "영상 + 음성" },
+];
+
 function InstagramAudioTool() {
   const [url, setUrl] = useState("");
+  const [format, setFormat] = useState<MediaFormat>("wav");
   const [state, setState] = useState<DownloadState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -5083,7 +5092,7 @@ function InstagramAudioTool() {
       const res = await fetch("/api/instagram-audio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: trimmed }),
+        body: JSON.stringify({ url: trimmed, format }),
       });
 
       if (!res.ok) {
@@ -5095,7 +5104,7 @@ function InstagramAudioTool() {
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = "instagram_audio.wav";
+      a.download = format === "mp4" ? "video.mp4" : `audio.${format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -5108,28 +5117,51 @@ function InstagramAudioTool() {
     }
   }
 
+  const selectedLabel = MEDIA_FORMAT_OPTIONS.find((o) => o.value === format)?.label ?? "";
+
   return (
     <section className="detail-card workbench-card">
       <div className="workbench-head">
-        <strong>인스타그램 음성 추출</strong>
-        <span>URL 입력 → MP3 다운로드</span>
+        <strong>미디어 다운로드</strong>
+        <span>Instagram · YouTube → MP3 / WAV / MP4</span>
       </div>
 
       <div className="form-grid">
         <label className="field-block">
-          <span>Instagram URL</span>
+          <span>URL (Instagram 또는 YouTube)</span>
           <input
             className="tool-input"
             type="url"
-            placeholder="https://www.instagram.com/p/..."
+            placeholder="https://www.instagram.com/reels/... 또는 https://www.youtube.com/watch?v=..."
             value={url}
-            onChange={(e) => {
-              setUrl(e.target.value);
-              if (state !== "idle") setState("idle");
-            }}
+            onChange={(e) => { setUrl(e.target.value); if (state !== "idle") setState("idle"); }}
             onKeyDown={(e) => e.key === "Enter" && handleDownload()}
           />
         </label>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        {MEDIA_FORMAT_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setFormat(opt.value)}
+            style={{
+              flex: 1,
+              minWidth: 90,
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: `2px solid ${format === opt.value ? "var(--accent)" : "var(--border)"}`,
+              background: format === opt.value ? "var(--accent-subtle)" : "var(--surface-1)",
+              cursor: "pointer",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 18 }}>{opt.icon}</div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{opt.label}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{opt.desc}</div>
+          </button>
+        ))}
       </div>
 
       <div className="tool-actions-row">
@@ -5139,7 +5171,7 @@ function InstagramAudioTool() {
           disabled={state === "loading" || !url.trim()}
         >
           <Download size={16} />
-          {state === "loading" ? "추출 중…" : "WAV 다운로드"}
+          {state === "loading" ? "처리 중…" : `${selectedLabel} 다운로드`}
         </button>
         {(state === "done" || state === "error") && (
           <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
@@ -5150,7 +5182,7 @@ function InstagramAudioTool() {
 
       {state === "loading" && (
         <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
-          서버에서 음성을 추출하고 있습니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
+          서버에서 처리 중입니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
         </p>
       )}
       {state === "done" && (
@@ -5165,13 +5197,12 @@ function InstagramAudioTool() {
       )}
 
       <div style={{ marginTop: 20, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
-        <strong style={{ display: "block", marginBottom: 6 }}>URL 복사하는 법</strong>
-        <ol style={{ paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
-          <li>인스타그램 게시물·릴스 열기</li>
-          <li>우상단 <strong>⋯</strong> 메뉴 클릭</li>
-          <li><strong>링크 복사</strong> 선택</li>
-          <li>위 입력란에 붙여넣기</li>
-        </ol>
+        <strong style={{ display: "block", marginBottom: 6 }}>포맷 선택 가이드</strong>
+        <ul style={{ paddingLeft: 18, margin: 0, lineHeight: 1.9 }}>
+          <li><strong>MP3</strong> — 파일 작고 범용. 음악 감상용</li>
+          <li><strong>WAV</strong> — 무압축. Premiere Pro·After Effects 편집 권장</li>
+          <li><strong>MP4</strong> — 영상+음성 그대로 저장</li>
+        </ul>
         <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 비공개 계정 게시물은 다운로드가 불가합니다.</p>
       </div>
     </section>
