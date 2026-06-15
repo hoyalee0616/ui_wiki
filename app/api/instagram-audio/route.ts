@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       "--extract-audio",
       "--audio-format", "mp3",
       "--audio-quality", "0",
+      "--postprocessor-args", "ffmpeg:-ar 44100 -ac 2",
       "--no-playlist",
       "--output", tmpFile,
       "--quiet",
