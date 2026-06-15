@@ -36,14 +36,13 @@ export async function POST(req: NextRequest) {
   }
 
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
-  const tmpFile = join(tmpdir(), `audio_${randomUUID()}.mp3`);
+  const tmpFile = join(tmpdir(), `audio_${randomUUID()}.wav`);
 
   try {
     await execFileAsync(ytdlpPath, [
       "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
-      "--postprocessor-args", "ffmpeg:-ar 44100 -ac 2",
+      "--audio-format", "wav",
+      "--postprocessor-args", "ffmpeg:-ar 48000 -ac 2",
       "--no-playlist",
       "--output", tmpFile,
       "--quiet",
@@ -57,11 +56,11 @@ export async function POST(req: NextRequest) {
       unlink(tmpFile, () => {});
     });
 
-    const filename = isYoutube ? "youtube_audio.mp3" : "instagram_audio.mp3";
+    const filename = isYoutube ? "youtube_audio.wav" : "instagram_audio.wav";
 
     return new Response(fileStream as unknown as ReadableStream, {
       headers: {
-        "Content-Type": "audio/mpeg",
+        "Content-Type": "audio/wav",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store",
       },

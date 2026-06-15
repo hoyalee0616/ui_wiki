@@ -5095,7 +5095,7 @@ function InstagramAudioTool() {
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = "instagram_audio.mp3";
+      a.download = "instagram_audio.wav";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -5139,7 +5139,7 @@ function InstagramAudioTool() {
           disabled={state === "loading" || !url.trim()}
         >
           <Download size={16} />
-          {state === "loading" ? "추출 중…" : "MP3 다운로드"}
+          {state === "loading" ? "추출 중…" : "WAV 다운로드"}
         </button>
         {(state === "done" || state === "error") && (
           <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
@@ -5178,12 +5178,13 @@ function InstagramAudioTool() {
   );
 }
 
-type YtFormat = "audio-mp3" | "audio-m4a" | "video";
+type YtFormat = "audio-mp3" | "audio-m4a" | "video" | "video-hq";
 
 const YT_FORMAT_OPTIONS: { value: YtFormat; label: string; desc: string }[] = [
   { value: "audio-mp3", label: "🎵 MP3", desc: "음성 · 범용" },
   { value: "audio-m4a", label: "🎵 M4A", desc: "음성 · 고품질 / Premiere 권장" },
-  { value: "video",     label: "🎬 MP4", desc: "영상 · H.264" },
+  { value: "video",     label: "🎬 MP4", desc: "영상 · 빠른 저장" },
+  { value: "video-hq",  label: "🎬 MP4 HQ", desc: "영상 · 고화질 1080p" },
 ];
 
 function YoutubeDownloadTool() {
@@ -5191,6 +5192,23 @@ function YoutubeDownloadTool() {
   const [format, setFormat] = useState<YtFormat>("audio-mp3");
   const [state, setState] = useState<DownloadState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [downloadInfo, setDownloadInfo] = useState<{ url: string; filename: string; type: string; size?: number; format: YtFormat; direct?: boolean } | null>(null);
+  const directDownloadUrl = url.trim()
+    ? `/api/youtube-download?url=${encodeURIComponent(url.trim())}&format=${encodeURIComponent(format)}`
+    : "";
+
+  useEffect(() => {
+    return () => {
+      if (downloadInfo) URL.revokeObjectURL(downloadInfo.url);
+    };
+  }, [downloadInfo]);
+
+  function clearDownloadInfo() {
+    setDownloadInfo((current) => {
+      if (current) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  }
 
   async function handleDownload() {
     const trimmed = url.trim();
@@ -5198,8 +5216,29 @@ function YoutubeDownloadTool() {
 
     setState("loading");
     setErrorMsg("");
+    clearDownloadInfo();
 
     try {
+      if (format === "video" || format === "video-hq") {
+        const videoUrl = `/api/youtube-download?url=${encodeURIComponent(trimmed)}&format=${encodeURIComponent(format)}`;
+        const link = document.createElement("a");
+        link.href = videoUrl;
+        link.rel = "noopener";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setDownloadInfo({
+          url: videoUrl,
+          filename: format === "video-hq" ? "youtube_video_hq.mp4" : "youtube_video.mp4",
+          type: "video/mp4",
+          format,
+          direct: true,
+        });
+        setState("done");
+        return;
+      }
+
       const res = await fetch("/api/youtube-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5214,18 +5253,21 @@ function YoutubeDownloadTool() {
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
       const asciiMatch = disposition.match(/filename="([^"]+)"/i);
-      const fallback = format === "video" ? "youtube_video.mp4" : format === "audio-m4a" ? "youtube_audio.m4a" : "youtube_audio.mp3";
+      const fallback = format === "audio-m4a" ? "youtube_audio.m4a" : "youtube_audio.mp3";
       const filename = utf8Match ? decodeURIComponent(utf8Match[1]) : asciiMatch ? asciiMatch[1] : fallback;
 
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
+      const safeFilename = sanitizeDownloadName(filename);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = safeFilename;
+      link.rel = "noopener";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setDownloadInfo({ url: objectUrl, filename: safeFilename, type: blob.type, size: blob.size, format });
 
       setState("done");
     } catch (err) {
@@ -5251,7 +5293,11 @@ function YoutubeDownloadTool() {
             value={url}
             onChange={(e) => {
               setUrl(e.target.value);
-              if (state !== "idle") setState("idle");
+              if (state !== "idle") {
+                setState("idle");
+                setErrorMsg("");
+                clearDownloadInfo();
+              }
             }}
             onKeyDown={(e) => e.key === "Enter" && handleDownload()}
           />
@@ -5294,10 +5340,10 @@ function YoutubeDownloadTool() {
           disabled={state === "loading" || !url.trim()}
         >
           <Download size={16} />
-          {state === "loading" ? "다운로드 중…" : format === "video" ? "MP4 다운로드" : format === "audio-m4a" ? "M4A 다운로드" : "MP3 다운로드"}
+          {state === "loading" ? "다운로드 중…" : format === "video-hq" ? "고화질 MP4 다운로드" : format === "video" ? "MP4 다운로드" : format === "audio-m4a" ? "M4A 다운로드" : "MP3 다운로드"}
         </button>
         {(state === "done" || state === "error") && (
-          <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
+          <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); clearDownloadInfo(); }}>
             <RotateCcw size={16} /> 초기화
           </button>
         )}
@@ -5305,13 +5351,46 @@ function YoutubeDownloadTool() {
 
       {state === "loading" && (
         <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
-          서버에서 {format === "video" ? "영상" : "음성"}을 처리하고 있습니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
+          서버에서 {format === "video" || format === "video-hq" ? "영상" : "음성"}을 처리하고 있습니다. {format === "video-hq" ? "고화질 영상은 용량이 크고 몇 분 이상 걸릴 수 있습니다…" : "영상 길이에 따라 수십 초가 걸릴 수 있습니다…"}
         </p>
       )}
       {state === "done" && (
         <p style={{ marginTop: 12, color: "var(--green)", fontSize: 13 }}>
-          ✅ 다운로드가 시작되었습니다. 브라우저 다운로드 폴더를 확인하세요.
+          ✅ 파일 준비가 완료되었습니다. 아래에서 바로 재생하거나 다운로드 링크를 눌러 저장하세요.
         </p>
+      )}
+      {state === "done" && downloadInfo && (
+        <div className="youtube-download-result">
+          <div className="youtube-download-file">
+            <strong>{downloadInfo.filename}</strong>
+            {downloadInfo.size ? <span>{formatNumber(downloadInfo.size / 1024 / 1024, 1)}MB</span> : <span>직접 다운로드</span>}
+          </div>
+          {downloadInfo.format === "audio-mp3" || downloadInfo.format === "audio-m4a" ? (
+            <audio className="youtube-download-player" src={downloadInfo.url} controls />
+          ) : !downloadInfo.direct ? (
+            <video className="youtube-download-player" src={downloadInfo.url} controls playsInline />
+          ) : (
+            <p className="youtube-download-help">
+              {downloadInfo.format === "video-hq"
+                ? "고화질 MP4는 영상과 음성을 병합하므로 오래 걸리고 파일이 클 수 있습니다. 자동 저장이 안 뜨면 아래 직접 다운로드를 눌러주세요."
+                : "MP4는 안정적인 단일 영상 파일로 직접 다운로드합니다. 자동 저장이 안 뜨면 아래 직접 다운로드를 눌러주세요."}
+            </p>
+          )}
+          <div className="tool-actions-row" style={{ marginTop: 10 }}>
+            <a className="primary-action" href={downloadInfo.url} download={downloadInfo.filename}>
+              <Download size={16} /> 다운로드 저장
+            </a>
+            <a className="primary-action secondary-action" href={directDownloadUrl}>
+              직접 다운로드
+            </a>
+            <button type="button" onClick={() => window.open(downloadInfo.url, "_blank", "noopener,noreferrer")}>
+              파일 새창 열기
+            </button>
+          </div>
+          <p className="youtube-download-help">
+            인앱 브라우저에서 저장이 막히면 오디오/영상 플레이어 메뉴의 저장 버튼을 사용하세요.
+          </p>
+        </div>
       )}
       {state === "error" && (
         <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>
