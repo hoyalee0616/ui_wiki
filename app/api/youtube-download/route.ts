@@ -68,9 +68,7 @@ function streamFile(tmpFile: string): ReadableStream {
   });
 }
 
-export async function POST(req: NextRequest) {
-  const { url, format } = await req.json();
-
+async function handleYoutubeDownload(url: unknown, format: unknown) {
   if (!url || typeof url !== "string") {
     return NextResponse.json({ error: "URL이 필요합니다." }, { status: 400 });
   }
@@ -82,7 +80,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const isVideo = format === "video";
+  const isVideo = format === "video" || format === "video-hq";
+  const isHighQualityVideo = format === "video-hq";
   const audioFmt = format === "audio-m4a" ? "m4a" : "mp3";
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ext = isVideo ? "mp4" : audioFmt;
@@ -118,8 +117,10 @@ export async function POST(req: NextRequest) {
 
   const args = isVideo
     ? [
-        "--format", "bestvideo+bestaudio/best",
-        "--format-sort", "vcodec:h264,ext:mp4",
+        "--format",
+        isHighQualityVideo
+          ? "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+          : "22/18/best[ext=mp4][vcodec^=avc1][acodec!=none][height<=720]/best[ext=mp4][acodec!=none][height<=720]/best[height<=720]",
         "--merge-output-format", "mp4",
         ...commonArgs,
         url.trim(),
@@ -154,4 +155,14 @@ export async function POST(req: NextRequest) {
       ...(contentLength ? { "Content-Length": contentLength } : {}),
     },
   });
+}
+
+export async function GET(req: NextRequest) {
+  const searchParams = req.nextUrl.searchParams;
+  return handleYoutubeDownload(searchParams.get("url"), searchParams.get("format") || "audio-mp3");
+}
+
+export async function POST(req: NextRequest) {
+  const { url, format } = await req.json();
+  return handleYoutubeDownload(url, format);
 }

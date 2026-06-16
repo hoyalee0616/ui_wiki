@@ -2910,6 +2910,46 @@ button {
   cursor: not-allowed;
 }
 
+.youtube-download-result {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.youtube-download-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.youtube-download-file strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.youtube-download-file span,
+.youtube-download-help {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.youtube-download-player {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  border-radius: 10px;
+}
+
+.youtube-download-help {
+  margin: 10px 0 0;
+  line-height: 1.55;
+}
+
 .editor-block {
   margin-top: 12px;
   color: var(--text-secondary);

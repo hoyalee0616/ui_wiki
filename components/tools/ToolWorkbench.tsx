@@ -5069,141 +5069,318 @@ type DownloadState = "idle" | "loading" | "done" | "error";
 
 type MediaFormat = "mp3" | "wav" | "mp4";
 
-const MEDIA_FORMAT_OPTIONS: { value: MediaFormat; icon: string; label: string; desc: string }[] = [
-  { value: "mp3",  icon: "♪", label: "MP3",  desc: "음성 · 범용" },
-  { value: "wav",  icon: "♪", label: "WAV",  desc: "음성 · Premiere 권장" },
-  { value: "mp4",  icon: "▶", label: "MP4",  desc: "영상 + 음성" },
+const MEDIA_FORMAT_OPTIONS: { value: MediaFormat; label: string }[] = [
+  { value: "mp4", label: "MP4 영상" },
+  { value: "mp3", label: "MP3 음성" },
+  { value: "wav", label: "WAV 음성" },
 ];
+
+type QueueStatus = "pending" | "loading" | "done" | "error";
+type QueueItem = {
+  id: string;
+  url: string;
+  format: MediaFormat;
+  status: QueueStatus;
+  title?: string;
+  thumbnail?: string | null;
+  duration?: number;
+  source?: string;
+  progress?: number;
+  errorMsg?: string;
+  transcript?: string;
+};
+
+function formatDuration(sec?: number) {
+  if (!sec || sec <= 0) return "--:--";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
 
 function InstagramAudioTool() {
   const [url, setUrl] = useState("");
-  const [format, setFormat] = useState<MediaFormat>("wav");
-  const [state, setState] = useState<DownloadState>("idle");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [format, setFormat] = useState<MediaFormat>("mp4");
+  const [withTranscript, setWithTranscript] = useState(false);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
 
-  async function handleDownload() {
-    const trimmed = url.trim();
-    if (!trimmed) return;
+  function updateItem(id: string, patch: Partial<QueueItem>) {
+    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+  }
 
-    setState("loading");
-    setErrorMsg("");
+  function removeItem(id: string) {
+    setQueue((prev) => prev.filter((q) => q.id !== id));
+  }
 
+  function clearCompleted() {
+    setQueue((prev) => prev.filter((q) => q.status !== "done"));
+  }
+
+  function clearAll() {
+    setQueue([]);
+  }
+
+  async function processItem(item: QueueItem) {
     try {
-      const res = await fetch("/api/instagram-audio", {
+      updateItem(item.id, { status: "loading", progress: 10 });
+
+      // 메타데이터 가져오기
+      const metaRes = await fetch("/api/youtube-meta", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: trimmed, format }),
+        body: JSON.stringify({ url: item.url }),
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `서버 오류 (${res.status})`);
+      if (metaRes.ok) {
+        const meta = await metaRes.json();
+        updateItem(item.id, {
+          title: meta.title,
+          thumbnail: meta.thumbnail,
+          duration: meta.duration,
+          source: meta.source,
+          progress: 30,
+        });
       }
 
-      const blob = await res.blob();
+      // 파일 다운로드
+      const dlRes = await fetch("/api/instagram-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: item.url, format: item.format }),
+      });
+      if (!dlRes.ok) {
+        const data = await dlRes.json().catch(() => ({}));
+        throw new Error(data.error || `서버 오류 (${dlRes.status})`);
+      }
+      updateItem(item.id, { progress: 80 });
+
+      const blob = await dlRes.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = format === "mp4" ? "video.mp4" : `audio.${format}`;
+      a.download = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(objectUrl);
 
-      setState("done");
+      // 자막 추출 (옵션)
+      let transcript: string | undefined;
+      if (withTranscript) {
+        try {
+          const trRes = await fetch("/api/youtube-transcript", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: item.url }),
+          });
+          if (trRes.ok) {
+            const trData = await trRes.json();
+            transcript = trData.text;
+          }
+        } catch {
+          // 자막 실패는 무시
+        }
+      }
+
+      updateItem(item.id, { status: "done", progress: 100, transcript });
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "알 수 없는 오류");
-      setState("error");
+      updateItem(item.id, {
+        status: "error",
+        errorMsg: err instanceof Error ? err.message : "알 수 없는 오류",
+      });
     }
   }
 
-  const selectedLabel = MEDIA_FORMAT_OPTIONS.find((o) => o.value === format)?.label ?? "";
+  function handleAdd() {
+    const inputs = url
+      .split(/[\s\n]+/)
+      .map((u) => u.trim())
+      .filter((u) => /^https?:\/\//.test(u));
+    if (inputs.length === 0) return;
+
+    const newItems: QueueItem[] = inputs.map((u) => ({
+      id: Math.random().toString(36).slice(2),
+      url: u,
+      format,
+      status: "pending",
+    }));
+    setQueue((prev) => [...prev, ...newItems]);
+    setUrl("");
+
+    newItems.forEach((item) => processItem(item));
+  }
+
+  function downloadTranscript(item: QueueItem) {
+    if (!item.transcript) return;
+    const blob = new Blob([item.transcript], { type: "text/plain;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = `transcript_${item.id.slice(0, 6)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  // ── 다크 테마 스타일 ──
+  const bg = "#0d0d0d";
+  const card = "#1a1a1a";
+  const border = "#2a2a2a";
+  const text = "#e5e5e5";
+  const muted = "#888";
+  const accent = "#22c55e";
+
+  const completedCount = queue.filter((q) => q.status === "done").length;
 
   return (
-    <section className="detail-card workbench-card">
-      <div className="workbench-head">
-        <strong>미디어 다운로드</strong>
-        <span>Instagram · YouTube → MP3 / WAV / MP4</span>
+    <section className="detail-card workbench-card" style={{ background: bg, color: text, border: `1px solid ${border}`, padding: 0, overflow: "hidden" }}>
+      {/* 헤더 */}
+      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ background: accent, color: "#000", width: 28, height: 28, borderRadius: 6, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>SB</span>
+        <strong style={{ fontSize: 15, color: text }}>SB Downloader</strong>
       </div>
 
-      <div className="form-grid">
-        <label className="field-block">
-          <span>URL (Instagram 또는 YouTube)</span>
+      <div style={{ padding: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: text, margin: "0 0 4px" }}>영상 다운로드</h2>
+        <p style={{ fontSize: 12, color: muted, margin: "0 0 16px" }}>YouTube · Instagram · 1000+ 사이트 지원</p>
+
+        {/* URL 입력 + 옵션 */}
+        <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 10, padding: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input
-            className="tool-input"
-            type="url"
-            placeholder="https://www.instagram.com/reels/... 또는 https://www.youtube.com/watch?v=..."
+            type="text"
+            placeholder="영상 URL 붙여넣기 (여러 개를 줄바꿈으로 추가 가능)"
             value={url}
-            onChange={(e) => { setUrl(e.target.value); if (state !== "idle") setState("idle"); }}
-            onKeyDown={(e) => e.key === "Enter" && handleDownload()}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleAdd();
+              }
+            }}
+            style={{ flex: 1, minWidth: 240, background: "transparent", border: "none", outline: "none", color: text, fontSize: 14, padding: "8px 10px" }}
           />
-        </label>
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        {MEDIA_FORMAT_OPTIONS.map((opt) => (
+          <select
+            value={format}
+            onChange={(e) => setFormat(e.target.value as MediaFormat)}
+            style={{ background: "#222", color: text, border: `1px solid ${border}`, borderRadius: 6, padding: "8px 10px", fontSize: 13 }}
+          >
+            {MEDIA_FORMAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
           <button
-            key={opt.value}
             type="button"
-            onClick={() => setFormat(opt.value)}
+            onClick={handleAdd}
+            disabled={!url.trim()}
             style={{
-              flex: 1,
-              minWidth: 90,
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: `2px solid ${format === opt.value ? "var(--accent)" : "var(--border)"}`,
-              background: format === opt.value ? "var(--accent-subtle)" : "var(--surface-1)",
-              cursor: "pointer",
-              textAlign: "center",
+              background: accent,
+              color: "#000",
+              border: "none",
+              borderRadius: 6,
+              padding: "10px 18px",
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: url.trim() ? "pointer" : "not-allowed",
+              opacity: url.trim() ? 1 : 0.5,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            <div style={{ fontSize: 18 }}>{opt.icon}</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{opt.label}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{opt.desc}</div>
+            <Plus size={16} /> 다운로드 추가
           </button>
-        ))}
-      </div>
+        </div>
+        <p style={{ fontSize: 12, color: muted, margin: "8px 0 16px" }}>💡 URL을 복사하면 자동으로 감지됩니다</p>
 
-      <div className="tool-actions-row">
-        <button
-          type="button"
-          onClick={handleDownload}
-          disabled={state === "loading" || !url.trim()}
-        >
-          <Download size={16} />
-          {state === "loading" ? "처리 중…" : `${selectedLabel} 다운로드`}
-        </button>
-        {(state === "done" || state === "error") && (
-          <button type="button" onClick={() => { setUrl(""); setState("idle"); setErrorMsg(""); }}>
-            <RotateCcw size={16} /> 초기화
-          </button>
+        {/* 자막 옵션 */}
+        <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: text, marginBottom: 8, fontWeight: 600 }}>📝 자막 생성</div>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={withTranscript}
+              onChange={(e) => setWithTranscript(e.target.checked)}
+              style={{ width: 18, height: 18, accentColor: accent }}
+            />
+            <div>
+              <div style={{ fontSize: 13, color: text, fontWeight: 600 }}>자막 생성 활성화</div>
+              <div style={{ fontSize: 11, color: muted }}>음성을 자막으로 변환 · YouTube 자동 자막 추출</div>
+            </div>
+          </label>
+        </div>
+
+        {/* 다운로드 큐 */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <strong style={{ fontSize: 14, color: text }}>다운로드 큐</strong>
+          <div style={{ display: "flex", gap: 14, fontSize: 12, color: muted }}>
+            <span>{queue.length}개 항목</span>
+            <button type="button" onClick={clearCompleted} disabled={completedCount === 0} style={{ background: "none", border: "none", color: completedCount > 0 ? muted : "#555", cursor: completedCount > 0 ? "pointer" : "not-allowed", fontSize: 12 }}>완료된 항목 정리</button>
+            <button type="button" onClick={clearAll} disabled={queue.length === 0} style={{ background: "none", border: "none", color: queue.length > 0 ? muted : "#555", cursor: queue.length > 0 ? "pointer" : "not-allowed", fontSize: 12 }}>전체 삭제</button>
+          </div>
+        </div>
+
+        {queue.length === 0 && (
+          <div style={{ background: card, border: `1px dashed ${border}`, borderRadius: 10, padding: 30, textAlign: "center", color: muted, fontSize: 13 }}>
+            큐가 비어있습니다. URL을 입력하고 추가하세요.
+          </div>
         )}
-      </div>
 
-      {state === "loading" && (
-        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
-          서버에서 처리 중입니다. 영상 길이에 따라 수십 초가 걸릴 수 있습니다…
-        </p>
-      )}
-      {state === "done" && (
-        <p style={{ marginTop: 12, color: "var(--green)", fontSize: 13 }}>
-          ✅ 다운로드가 시작되었습니다. 브라우저 다운로드 폴더를 확인하세요.
-        </p>
-      )}
-      {state === "error" && (
-        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>
-          ❌ {errorMsg}
-        </p>
-      )}
-
-      <div style={{ marginTop: 20, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
-        <strong style={{ display: "block", marginBottom: 6 }}>포맷 선택 가이드</strong>
-        <ul style={{ paddingLeft: 18, margin: 0, lineHeight: 1.9 }}>
-          <li><strong>MP3</strong> — 파일 작고 범용. 음악 감상용</li>
-          <li><strong>WAV</strong> — 무압축. Premiere Pro·After Effects 편집 권장</li>
-          <li><strong>MP4</strong> — 영상+음성 그대로 저장</li>
-        </ul>
-        <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 비공개 계정 게시물은 다운로드가 불가합니다.</p>
+        {queue.map((item) => (
+          <div key={item.id} style={{ background: card, border: `1px solid ${item.status === "loading" ? accent : border}`, borderRadius: 10, padding: 12, marginBottom: 10, display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ width: 80, height: 60, background: "#000", borderRadius: 6, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: muted, fontSize: 24 }}>
+              {item.thumbnail ? (
+                <img src={item.thumbnail} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                "🎬"
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {item.title ?? item.url}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4, fontSize: 11, color: muted }}>
+                <span style={{ background: "#333", color: text, padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
+                  {item.source ?? (item.url.includes("youtube") || item.url.includes("youtu.be") ? "YOUTUBE" : "INSTAGRAM")}
+                </span>
+                <span style={{ background: accent, color: "#000", padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
+                  {item.format.toUpperCase()}
+                </span>
+                <span>{formatDuration(item.duration)}</span>
+              </div>
+              {/* 진행 바 */}
+              <div style={{ marginTop: 8, height: 4, background: "#2a2a2a", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{
+                  width: `${item.progress ?? (item.status === "done" ? 100 : item.status === "error" ? 0 : 0)}%`,
+                  height: "100%",
+                  background: item.status === "error" ? "#ef4444" : accent,
+                  transition: "width 0.3s",
+                }} />
+              </div>
+              {item.status === "error" && (
+                <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>❌ {item.errorMsg}</div>
+              )}
+              {item.transcript && (
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ fontSize: 11, color: accent, cursor: "pointer" }}>📝 자막 보기 ({item.transcript.split("\n").length}줄)</summary>
+                  <div style={{ marginTop: 6, background: "#0a0a0a", border: `1px solid ${border}`, borderRadius: 6, padding: 10, maxHeight: 200, overflow: "auto", fontSize: 12, color: muted, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                    {item.transcript}
+                  </div>
+                  <button type="button" onClick={() => downloadTranscript(item)} style={{ marginTop: 6, background: "transparent", border: `1px solid ${border}`, color: text, borderRadius: 4, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                    <Download size={10} style={{ verticalAlign: "middle" }} /> 자막 .txt 저장
+                  </button>
+                </details>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              <div style={{ fontSize: 11, color: item.status === "done" ? accent : item.status === "error" ? "#ef4444" : muted, fontWeight: 600 }}>
+                {item.status === "pending" && "대기 중"}
+                {item.status === "loading" && `${item.progress ?? 0}%`}
+                {item.status === "done" && "완료"}
+                {item.status === "error" && "실패"}
+              </div>
+              <button type="button" onClick={() => removeItem(item.id)} style={{ background: "transparent", border: "none", color: muted, cursor: "pointer", fontSize: 16 }}>×</button>
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );
