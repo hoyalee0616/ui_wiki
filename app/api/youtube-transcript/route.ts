@@ -1,107 +1,96 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { spawn } from "node:child_process";
-import { readFile, unlink, readdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, unlink } from "node:fs/promises";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
-function stripVtt(vtt: string): string {
-  const lines = vtt.split(/\r?\n/);
-  const out: string[] = [];
-  let lastText = "";
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith("WEBVTT")) continue;
-    if (line.startsWith("Kind:") || line.startsWith("Language:")) continue;
-    if (line.startsWith("NOTE")) continue;
-    if (/-->/i.test(line)) continue;
-    if (/^\d+$/.test(line)) continue;
-
-    // 태그 제거
-    const cleaned = line
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .trim();
-
-    if (!cleaned) continue;
-    if (cleaned === lastText) continue;
-    out.push(cleaned);
-    lastText = cleaned;
-  }
-
-  return out.join("\n");
+function cleanup(path: string) {
+  unlink(path).catch(() => {});
 }
 
 export async function POST(req: NextRequest) {
-  const { url } = await req.json();
+  const { url, language } = await req.json() as { url: string; language?: string };
 
   if (!url || typeof url !== "string") {
     return NextResponse.json({ error: "URL이 필요합니다." }, { status: 400 });
   }
 
-  const isYoutube = /youtube\.com\/(watch|shorts)|youtu\.be\//.test(url);
-  if (!isYoutube) {
-    return NextResponse.json({ error: "현재 자막은 YouTube만 지원합니다." }, { status: 400 });
-  }
-
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
+  const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
+  const whisperPath = process.env.WHISPER_PATH || "whisper-cli";
+  const modelPath = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-base.bin");
+
   const id = randomUUID();
-  const outBase = join(tmpdir(), `sub_${id}`);
+  const rawFile = join(tmpdir(), `whisper_raw_${id}`);
+  const wavFile = join(tmpdir(), `whisper_${id}.wav`);
+  const txtFile = `${wavFile}.txt`;
 
   try {
+    // 1) 오디오 다운로드
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ytdlpPath, [
-        "--skip-download",
-        "--write-subs",
-        "--write-auto-subs",
-        "--sub-langs", "ko,en,en-US,en-GB",
-        "--sub-format", "vtt",
+        "--format", "bestaudio",
         "--no-playlist",
-        "--output", outBase,
+        "--output", rawFile,
         "--quiet",
         url,
       ]);
-      proc.stderr.on("data", (d: Buffer) => console.error("[yt-dlp sub]", d.toString()));
+      proc.stderr.on("data", (d: Buffer) => console.error("[yt-dlp]", d.toString()));
       proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`)));
       proc.on("error", reject);
     });
 
-    // 임시 폴더에서 sub_<id>.* 파일 찾기
-    const files = await readdir(tmpdir());
-    const subFiles = files.filter((f) => f.startsWith(`sub_${id}`) && f.endsWith(".vtt"));
-
-    if (subFiles.length === 0) {
-      return NextResponse.json({ error: "자막을 찾을 수 없습니다. 이 영상에 자막이 없을 수 있습니다." }, { status: 404 });
-    }
-
-    // 한국어 우선
-    subFiles.sort((a, b) => {
-      const aKo = a.includes(".ko.") ? 0 : 1;
-      const bKo = b.includes(".ko.") ? 0 : 1;
-      return aKo - bKo;
+    // 2) 16kHz mono PCM WAV 변환 (whisper 요구사항)
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(ffmpegPath, [
+        "-i", rawFile,
+        "-vn",
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        "-y",
+        wavFile,
+      ]);
+      proc.stderr.on("data", (d: Buffer) => console.error("[ffmpeg]", d.toString()));
+      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}`)));
+      proc.on("error", reject);
     });
 
-    const subPath = join(tmpdir(), subFiles[0]);
-    const vtt = await readFile(subPath, "utf-8");
-    const text = stripVtt(vtt);
-    const lang = subFiles[0].match(/\.([a-z]{2}(-[A-Z]{2})?)\.vtt$/)?.[1] ?? "unknown";
+    cleanup(rawFile);
 
-    // 모든 자막 파일 정리
-    for (const f of subFiles) {
-      unlink(join(tmpdir(), f)).catch(() => {});
-    }
+    // 3) Whisper 실행 → 텍스트 파일 생성
+    const lang = language || "auto";
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(whisperPath, [
+        "-m", modelPath,
+        "-f", wavFile,
+        "-l", lang,
+        "-otxt",
+        "-nt",  // no timestamps
+        "--threads", "8",
+      ]);
+      proc.stderr.on("data", (d: Buffer) => console.error("[whisper]", d.toString()));
+      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`whisper exit ${code}`)));
+      proc.on("error", reject);
+    });
 
-    return NextResponse.json({ text, lang });
+    const text = (await readFile(txtFile, "utf-8")).trim();
+
+    cleanup(wavFile);
+    cleanup(txtFile);
+
+    return NextResponse.json({ text, engine: "whisper", lang });
   } catch (err) {
-    console.error("[transcript error]", err);
-    return NextResponse.json({ error: "자막 추출에 실패했습니다." }, { status: 500 });
+    cleanup(rawFile);
+    cleanup(wavFile);
+    cleanup(txtFile);
+    console.error("[whisper error]", err);
+    return NextResponse.json(
+      { error: "Whisper 자막 추출에 실패했습니다. 모델 파일이 설치되어 있는지 확인하세요." },
+      { status: 500 },
+    );
   }
 }

@@ -5302,8 +5302,8 @@ function InstagramAudioTool() {
               style={{ width: 18, height: 18, accentColor: accent }}
             />
             <div>
-              <div style={{ fontSize: 13, color: text, fontWeight: 600 }}>자막 생성 활성화</div>
-              <div style={{ fontSize: 11, color: muted }}>음성을 자막으로 변환 · YouTube 자동 자막 추출</div>
+              <div style={{ fontSize: 13, color: text, fontWeight: 600 }}>자막 생성 활성화 (Whisper AI)</div>
+              <div style={{ fontSize: 11, color: muted }}>OpenAI Whisper 엔진으로 음성 → 자막 변환 · 다국어 자동 인식</div>
             </div>
           </label>
         </div>

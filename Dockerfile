@@ -25,10 +25,18 @@ ENV HOSTNAME="0.0.0.0"
 # 문의 데이터 저장 경로 (볼륨 마운트 대상)
 ENV INQUIRIES_DATA_DIR=/app/data
 
-# yt-dlp + ffmpeg 설치 (YouTube/Instagram 다운로드용)
-RUN apk add --no-cache ffmpeg curl python3 && \
+# yt-dlp + ffmpeg + whisper.cpp 설치
+RUN apk add --no-cache ffmpeg curl python3 build-base cmake git && \
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp
+    chmod a+rx /usr/local/bin/yt-dlp && \
+    git clone --depth 1 https://github.com/ggerganov/whisper.cpp /tmp/whisper.cpp && \
+    cd /tmp/whisper.cpp && cmake -B build && cmake --build build --config Release -j && \
+    cp build/bin/whisper-cli /usr/local/bin/whisper-cli && \
+    mkdir -p /opt/whisper-models && \
+    curl -L -o /opt/whisper-models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin && \
+    rm -rf /tmp/whisper.cpp
+
+ENV WHISPER_MODEL=/opt/whisper-models/ggml-base.bin
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
