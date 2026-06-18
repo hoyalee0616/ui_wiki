@@ -5063,7 +5063,191 @@ function MediaTools({ toolId }: { toolId: string }) {
   if (toolId === "instagram-audio") return <InstagramAudioTool />;
   if (toolId === "youtube-download") return <YoutubeDownloadTool />;
   if (toolId === "vocal-separate") return <VocalSeparateTool />;
+  if (toolId === "audio-transcribe") return <AudioTranscribeTool />;
   return null;
+}
+
+function AudioTranscribeTool() {
+  const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [format, setFormat] = useState<"srt" | "vtt" | "txt">("srt");
+  const [language, setLanguage] = useState("auto");
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [preview, setPreview] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleRun() {
+    if (!url.trim() && !file) return;
+    setStatus("loading");
+    setErrorMsg("");
+    setPreview("");
+
+    try {
+      let res: Response;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("format", format);
+        fd.append("language", language);
+        res = await fetch("/api/audio-transcribe", { method: "POST", body: fd });
+      } else {
+        res = await fetch("/api/audio-transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url.trim(), format, language }),
+        });
+      }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `서버 오류 (${res.status})`);
+      }
+
+      const text = await res.text();
+      setPreview(text);
+
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `subtitle.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+
+      setStatus("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "알 수 없는 오류");
+      setStatus("error");
+    }
+  }
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head">
+        <strong>음성→자막 변환 (Whisper AI)</strong>
+        <span>URL 또는 파일 → SRT / VTT / TXT</span>
+      </div>
+
+      <div className="form-grid">
+        <label className="field-block">
+          <span>YouTube · Instagram URL</span>
+          <input
+            className="tool-input"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); if (status !== "idle") setStatus("idle"); }}
+          />
+        </label>
+
+        <label className="field-block">
+          <span>또는 음성·영상 파일 업로드</span>
+          <input
+            type="file"
+            accept="audio/*,video/*"
+            onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (status !== "idle") setStatus("idle"); }}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        {([
+          { value: "srt" as const, label: "SRT", desc: "프리미어·자막 표준" },
+          { value: "vtt" as const, label: "VTT", desc: "웹·YouTube 호환" },
+          { value: "txt" as const, label: "TXT", desc: "타임스탬프 없음" },
+        ]).map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setFormat(opt.value)}
+            style={{
+              flex: 1,
+              minWidth: 90,
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: `2px solid ${format === opt.value ? "var(--accent)" : "var(--border)"}`,
+              background: format === opt.value ? "var(--accent-subtle)" : "var(--surface-1)",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{opt.label}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{opt.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      <label className="field-block short" style={{ marginBottom: 16 }}>
+        <span>언어 (자동 감지 권장)</span>
+        <select className="tool-input" value={language} onChange={(e) => setLanguage(e.target.value)}>
+          <option value="auto">자동 감지</option>
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+          <option value="zh">中文</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+        </select>
+      </label>
+
+      <div className="tool-actions-row">
+        <button
+          type="button"
+          onClick={handleRun}
+          disabled={status === "loading" || (!url.trim() && !file)}
+        >
+          <Download size={16} />
+          {status === "loading" ? "Whisper 추론 중… (1~3분)" : `${format.toUpperCase()} 자막 생성`}
+        </button>
+        {(status === "done" || status === "error") && (
+          <button type="button" onClick={() => { setUrl(""); setFile(null); setStatus("idle"); setErrorMsg(""); setPreview(""); }}>
+            <RotateCcw size={16} /> 초기화
+          </button>
+        )}
+      </div>
+
+      {status === "loading" && (
+        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
+          🧠 Whisper AI가 음성을 받아쓰고 있습니다. 음원 길이에 따라 1~3분 소요됩니다…
+        </p>
+      )}
+      {status === "error" && (
+        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>❌ {errorMsg}</p>
+      )}
+
+      {preview && (
+        <div style={{ marginTop: 16 }}>
+          <strong style={{ display: "block", marginBottom: 6, fontSize: 13 }}>
+            📝 자막 미리보기 ({format.toUpperCase()})
+          </strong>
+          <textarea
+            readOnly
+            value={preview}
+            style={{
+              width: "100%",
+              minHeight: 220,
+              fontFamily: "monospace",
+              fontSize: 12,
+              padding: 12,
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--surface-2)",
+              resize: "vertical",
+            }}
+          />
+        </div>
+      )}
+
+      <div style={{ marginTop: 16, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
+        <strong style={{ display: "block", marginBottom: 6 }}>🔬 Whisper 자막 엔진</strong>
+        <p style={{ margin: 0, lineHeight: 1.7 }}>
+          OpenAI Whisper(<strong>ggml-base</strong>)를 whisper.cpp로 실행합니다.
+          타임스탬프 포함 SRT/VTT는 프리미어 프로·파이널컷·YouTube에 그대로 사용 가능합니다.
+        </p>
+      </div>
+    </section>
+  );
 }
 
 function VocalSeparateTool() {

@@ -151,7 +151,7 @@ export const toolSections: ToolSection[] = [
     description: "SNS 영상에서 음성을 추출하고 저장하는 미디어 유틸리티",
     accent: "green",
     icon: Music,
-    stats: "2개 도구",
+    stats: "3개 도구",
   },
 ];
 
@@ -780,6 +780,19 @@ export const tools: ToolItem[] = [
     icon: MonitorPlay,
     features: ["YouTube 영상·Shorts 지원", "고음질 MP3 추출", "최대 1080p MP4 영상 다운로드"],
     useCases: ["음악·강의 오프라인 청취", "영상 클립 저장", "편집용 소스 다운로드"],
+    isNew: true,
+  },
+  {
+    id: "audio-transcribe",
+    name: "음성→자막 변환 (Whisper)",
+    slug: "/tools/audio-transcribe",
+    summary: "AI Whisper로 음성·영상에서 자막 자동 생성 (SRT/VTT/TXT)",
+    description: "OpenAI Whisper 모델로 영상·음성 파일이나 URL의 음성을 자동으로 자막으로 변환합니다. SRT/VTT 타임스탬프 포맷과 일반 텍스트를 지원하며 다국어 자동 인식이 가능합니다.",
+    sectionId: "media",
+    accent: "blue",
+    icon: Music,
+    features: ["OpenAI Whisper AI 추론", "SRT / VTT / TXT 출력", "다국어 자동 감지", "URL 또는 파일 업로드"],
+    useCases: ["영상 자막 제작", "회의 녹음 받아쓰기", "인터뷰 받아쓰기"],
     isNew: true,
   },
   {
