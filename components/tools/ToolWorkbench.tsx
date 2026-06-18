@@ -5062,7 +5062,155 @@ export function ToolWorkbench({
 function MediaTools({ toolId }: { toolId: string }) {
   if (toolId === "instagram-audio") return <InstagramAudioTool />;
   if (toolId === "youtube-download") return <YoutubeDownloadTool />;
+  if (toolId === "vocal-separate") return <VocalSeparateTool />;
   return null;
+}
+
+function VocalSeparateTool() {
+  const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [target, setTarget] = useState<"vocals" | "no_vocals">("vocals");
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleRun() {
+    if (!url.trim() && !file) return;
+    setStatus("loading");
+    setErrorMsg("");
+
+    try {
+      let res: Response;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("target", target);
+        res = await fetch("/api/vocal-separate", { method: "POST", body: fd });
+      } else {
+        res = await fetch("/api/vocal-separate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url.trim(), target }),
+        });
+      }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `서버 오류 (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = target === "vocals" ? "vocals.mp3" : "instrumental.mp3";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+
+      setStatus("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "알 수 없는 오류");
+      setStatus("error");
+    }
+  }
+
+  return (
+    <section className="detail-card workbench-card">
+      <div className="workbench-head">
+        <strong>보컬·반주 분리 (Demucs AI)</strong>
+        <span>음원에서 목소리와 배경음악을 분리</span>
+      </div>
+
+      <div className="form-grid">
+        <label className="field-block">
+          <span>YouTube · Instagram URL</span>
+          <input
+            className="tool-input"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); if (status !== "idle") setStatus("idle"); }}
+          />
+        </label>
+
+        <label className="field-block">
+          <span>또는 오디오 파일 업로드 (MP3 / WAV / M4A)</span>
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (status !== "idle") setStatus("idle"); }}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        {([
+          { value: "vocals" as const, label: "🎤 보컬만 (목소리)", desc: "노래·내레이션 추출" },
+          { value: "no_vocals" as const, label: "🎵 반주만 (MR)", desc: "배경음악·악기 추출" },
+        ]).map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setTarget(opt.value)}
+            style={{
+              flex: 1,
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: `2px solid ${target === opt.value ? "var(--accent)" : "var(--border)"}`,
+              background: target === opt.value ? "var(--accent-subtle)" : "var(--surface-1)",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{opt.label}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{opt.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="tool-actions-row">
+        <button
+          type="button"
+          onClick={handleRun}
+          disabled={status === "loading" || (!url.trim() && !file)}
+        >
+          <Download size={16} />
+          {status === "loading" ? "AI 분리 중… (1~5분)" : `${target === "vocals" ? "보컬" : "반주"} 다운로드`}
+        </button>
+        {(status === "done" || status === "error") && (
+          <button type="button" onClick={() => { setUrl(""); setFile(null); setStatus("idle"); setErrorMsg(""); }}>
+            <RotateCcw size={16} /> 초기화
+          </button>
+        )}
+      </div>
+
+      {status === "loading" && (
+        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
+          🧠 Demucs AI가 음원을 분석하고 있습니다. 길이에 따라 1~5분 소요됩니다…
+        </p>
+      )}
+      {status === "done" && (
+        <p style={{ marginTop: 12, color: "var(--green)", fontSize: 13 }}>
+          ✅ 분리 완료! 브라우저 다운로드 폴더를 확인하세요.
+        </p>
+      )}
+      {status === "error" && (
+        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>
+          ❌ {errorMsg}
+        </p>
+      )}
+
+      <div style={{ marginTop: 20, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
+        <strong style={{ display: "block", marginBottom: 6 }}>🔬 사용된 AI 모델</strong>
+        <p style={{ margin: 0, lineHeight: 1.7 }}>
+          <strong>Demucs (htdemucs)</strong> — Facebook AI Research의 음원 분리 모델.
+          U-Net 기반 하이브리드 트랜스포머로 보컬·드럼·베이스·기타를 분리합니다.
+        </p>
+        <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ CPU 추론으로 약 1~5분 소요. 영상 길이가 짧을수록 빠릅니다.</p>
+      </div>
+    </section>
+  );
 }
 
 type DownloadState = "idle" | "loading" | "done" | "error";
