@@ -33,10 +33,10 @@ RUN apk add --no-cache ffmpeg curl python3 build-base cmake git && \
     cd /tmp/whisper.cpp && cmake -B build && cmake --build build --config Release -j && \
     cp build/bin/whisper-cli /usr/local/bin/whisper-cli && \
     mkdir -p /opt/whisper-models && \
-    curl -L -o /opt/whisper-models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin && \
+    curl -L -o /opt/whisper-models/ggml-small.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin && \
     rm -rf /tmp/whisper.cpp
 
-ENV WHISPER_MODEL=/opt/whisper-models/ggml-base.bin
+ENV WHISPER_MODEL=/opt/whisper-models/ggml-small.bin
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

@@ -5399,12 +5399,13 @@ function VocalSeparateTool() {
 
 type DownloadState = "idle" | "loading" | "done" | "error";
 
-type MediaFormat = "mp3" | "wav" | "mp4";
+type MediaFormat = "mp3" | "wav" | "mp4" | "transcript-only";
 
 const MEDIA_FORMAT_OPTIONS: { value: MediaFormat; label: string }[] = [
   { value: "mp4", label: "MP4 영상" },
   { value: "mp3", label: "MP3 음성" },
   { value: "wav", label: "WAV 음성" },
+  { value: "transcript-only", label: "자막만 (다운로드 X)" },
 ];
 
 type QueueStatus = "pending" | "loading" | "done" | "error";
@@ -5472,31 +5473,36 @@ function InstagramAudioTool() {
         });
       }
 
-      // 파일 다운로드
-      const dlRes = await fetch("/api/instagram-audio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: item.url, format: item.format }),
-      });
-      if (!dlRes.ok) {
-        const data = await dlRes.json().catch(() => ({}));
-        throw new Error(data.error || `서버 오류 (${dlRes.status})`);
+      // 파일 다운로드 (transcript-only 모드는 건너뜀)
+      if (item.format !== "transcript-only") {
+        const dlRes = await fetch("/api/instagram-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: item.url, format: item.format }),
+        });
+        if (!dlRes.ok) {
+          const data = await dlRes.json().catch(() => ({}));
+          throw new Error(data.error || `서버 오류 (${dlRes.status})`);
+        }
+        updateItem(item.id, { progress: 80 });
+
+        const blob = await dlRes.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
+      } else {
+        updateItem(item.id, { progress: 50 });
       }
-      updateItem(item.id, { progress: 80 });
 
-      const blob = await dlRes.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
-
-      // 자막 추출 (옵션)
+      // 자막 추출 (transcript-only는 항상, 그 외는 옵션)
       let transcript: string | undefined;
-      if (withTranscript) {
+      const shouldTranscribe = item.format === "transcript-only" || withTranscript;
+      if (shouldTranscribe) {
         try {
           const trRes = await fetch("/api/youtube-transcript", {
             method: "POST",
@@ -5691,15 +5697,31 @@ function InstagramAudioTool() {
                 <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>❌ {item.errorMsg}</div>
               )}
               {item.transcript && (
-                <details style={{ marginTop: 8 }}>
-                  <summary style={{ fontSize: 11, color: accent, cursor: "pointer" }}>📝 자막 보기 ({item.transcript.split("\n").length}줄)</summary>
-                  <div style={{ marginTop: 6, background: "#0a0a0a", border: `1px solid ${border}`, borderRadius: 6, padding: 10, maxHeight: 200, overflow: "auto", fontSize: 12, color: muted, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <strong style={{ fontSize: 12, color: accent }}>📝 자막 ({item.transcript.split("\n").length}줄)</strong>
+                    <button type="button" onClick={() => downloadTranscript(item)} style={{ background: "transparent", border: `1px solid ${border}`, color: text, borderRadius: 4, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
+                      <Download size={10} style={{ verticalAlign: "middle" }} /> .txt 저장
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      width: "100%",
+                      background: "#0a0a0a",
+                      border: `1px solid ${border}`,
+                      borderRadius: 6,
+                      padding: 12,
+                      fontSize: 13,
+                      color: text,
+                      lineHeight: 1.7,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      userSelect: "text",
+                    }}
+                  >
                     {item.transcript}
                   </div>
-                  <button type="button" onClick={() => downloadTranscript(item)} style={{ marginTop: 6, background: "transparent", border: `1px solid ${border}`, color: text, borderRadius: 4, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
-                    <Download size={10} style={{ verticalAlign: "middle" }} /> 자막 .txt 저장
-                  </button>
-                </details>
+                </div>
               )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>

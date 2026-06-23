@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
   const whisperPath = process.env.WHISPER_PATH || "whisper-cli";
-  const modelPath = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-base.bin");
+  const modelPath = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-small.bin");
 
   const id = randomUUID();
   const rawFile = join(tmpdir(), `tr_raw_${id}`);

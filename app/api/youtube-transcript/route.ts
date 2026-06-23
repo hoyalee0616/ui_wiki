@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
   const whisperPath = process.env.WHISPER_PATH || "whisper-cli";
-  const modelPath = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-base.bin");
+  const modelPath = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-small.bin");
 
   const id = randomUUID();
   const rawFile = join(tmpdir(), `whisper_raw_${id}`);
@@ -69,7 +69,6 @@ export async function POST(req: NextRequest) {
         "-f", wavFile,
         "-l", lang,
         "-otxt",
-        "-nt",  // no timestamps
         "--threads", "8",
       ]);
       proc.stderr.on("data", (d: Buffer) => console.error("[whisper]", d.toString()));
@@ -77,7 +76,14 @@ export async function POST(req: NextRequest) {
       proc.on("error", reject);
     });
 
-    const text = (await readFile(txtFile, "utf-8")).trim();
+    const raw = (await readFile(txtFile, "utf-8")).trim();
+
+    // 각 줄에서 [00:00:00.000 --> 00:00:05.000] 같은 타임스탬프 제거
+    const text = raw
+      .split(/\r?\n/)
+      .map((l) => l.replace(/^\[[0-9:.,\s>\->]+\]\s*/, "").trim())
+      .filter(Boolean)
+      .join("\n");
 
     cleanup(wavFile);
     cleanup(txtFile);
