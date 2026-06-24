@@ -2950,6 +2950,167 @@ button {
   line-height: 1.55;
 }
 
+.compact-help {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.vocal-options-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.vocal-option-card {
+  min-width: 0;
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.vocal-option-card strong {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.vocal-option-card span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.vocal-option-card.is-active {
+  border-color: var(--accent-purple);
+  background: var(--icon-purple-bg);
+  color: var(--accent-purple);
+}
+
+.vocal-option-card.is-active span {
+  color: var(--accent-purple);
+}
+
+.vocal-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.segmented-control.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented-control button {
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segmented-control button.is-active {
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+.vocal-status-text {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.vocal-status-text.success {
+  color: var(--accent-green);
+}
+
+.vocal-status-text.error {
+  color: var(--accent-red);
+}
+
+.vocal-engine-panel {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.vocal-engine-panel strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.vocal-engine-panel p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.vocal-dependency-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.vocal-dependency-grid > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.vocal-dependency-grid small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vocal-dependency-grid .is-ok small {
+  color: var(--accent-green);
+}
+
+.vocal-dependency-grid .is-warn small {
+  color: var(--accent-orange);
+}
+
 .editor-block {
   margin-top: 12px;
   color: var(--text-secondary);
@@ -5404,6 +5565,20 @@ button {
     padding: 10px 12px;
     line-height: 1.35;
     white-space: normal;
+  }
+
+  .vocal-options-grid,
+  .vocal-settings-grid,
+  .vocal-dependency-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vocal-option-card {
+    min-height: 74px;
+  }
+
+  .segmented-control.three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .field-block span,

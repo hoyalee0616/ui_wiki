@@ -5250,17 +5250,74 @@ function AudioTranscribeTool() {
   );
 }
 
+type VocalTarget = "vocals" | "no_vocals" | "both";
+type VocalFormat = "mp3" | "wav";
+type VocalQuality = "fast" | "balanced" | "quality";
+type VocalDependency = {
+  ok: boolean;
+  version?: string | null;
+  error?: string;
+};
+type VocalStatusResponse = {
+  ok: boolean;
+  demucs: VocalDependency;
+  ytdlp: VocalDependency;
+  ffmpeg: VocalDependency;
+};
+
+function getFilenameFromDisposition(disposition: string | null, fallback: string) {
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const asciiMatch = disposition.match(/filename="([^"]+)"/i);
+  if (utf8Match) return decodeURIComponent(utf8Match[1]);
+  if (asciiMatch) return asciiMatch[1];
+  return fallback;
+}
+
 function VocalSeparateTool() {
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [target, setTarget] = useState<"vocals" | "no_vocals">("vocals");
+  const [target, setTarget] = useState<VocalTarget>("both");
+  const [format, setFormat] = useState<VocalFormat>("mp3");
+  const [quality, setQuality] = useState<VocalQuality>("balanced");
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [health, setHealth] = useState<VocalStatusResponse | null>(null);
+  const [result, setResult] = useState<{ url: string; filename: string; type: string; size: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/vocal-separate")
+      .then((res) => res.json())
+      .then((data: VocalStatusResponse) => {
+        if (alive) setHealth(data);
+      })
+      .catch(() => {
+        if (alive) setHealth(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (result) URL.revokeObjectURL(result.url);
+    };
+  }, [result]);
+
+  function clearResult() {
+    setResult((current) => {
+      if (current) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  }
 
   async function handleRun() {
     if (!url.trim() && !file) return;
     setStatus("loading");
     setErrorMsg("");
+    clearResult();
 
     try {
       let res: Response;
@@ -5268,12 +5325,14 @@ function VocalSeparateTool() {
         const fd = new FormData();
         fd.append("file", file);
         fd.append("target", target);
+        fd.append("format", format);
+        fd.append("quality", quality);
         res = await fetch("/api/vocal-separate", { method: "POST", body: fd });
       } else {
         res = await fetch("/api/vocal-separate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: url.trim(), target }),
+          body: JSON.stringify({ url: url.trim(), target, format, quality }),
         });
       }
 
@@ -5284,13 +5343,15 @@ function VocalSeparateTool() {
 
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
+      const fallback = target === "both" ? "vocal-separation.zip" : `${target === "vocals" ? "vocals" : "instrumental"}.${format}`;
+      const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = target === "vocals" ? "vocals.mp3" : "instrumental.mp3";
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
+      setResult({ url: objectUrl, filename, type: blob.type, size: blob.size });
 
       setStatus("done");
     } catch (err) {
@@ -5302,8 +5363,8 @@ function VocalSeparateTool() {
   return (
     <section className="detail-card workbench-card">
       <div className="workbench-head">
-        <strong>보컬·반주 분리 (Demucs AI)</strong>
-        <span>음원에서 목소리와 배경음악을 분리</span>
+        <strong>보컬·반주 분리</strong>
+        <span>파일 또는 URL을 Demucs로 분리하고 바로 저장</span>
       </div>
 
       <div className="form-grid">
@@ -5314,43 +5375,64 @@ function VocalSeparateTool() {
             type="url"
             placeholder="https://www.youtube.com/watch?v=..."
             value={url}
-            onChange={(e) => { setUrl(e.target.value); if (status !== "idle") setStatus("idle"); }}
+            onChange={(e) => { setUrl(e.target.value); if (status !== "idle") setStatus("idle"); clearResult(); }}
           />
         </label>
 
         <label className="field-block">
-          <span>또는 오디오 파일 업로드 (MP3 / WAV / M4A)</span>
+          <span>또는 파일 업로드</span>
           <input
             type="file"
-            accept="audio/*"
-            onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (status !== "idle") setStatus("idle"); }}
+            accept="audio/*,video/*"
+            onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (status !== "idle") setStatus("idle"); clearResult(); }}
           />
+          {file && <small className="field-help compact-help">{file.name}</small>}
         </label>
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div className="vocal-options-grid">
         {([
-          { value: "vocals" as const, label: "🎤 보컬만 (목소리)", desc: "노래·내레이션 추출" },
-          { value: "no_vocals" as const, label: "🎵 반주만 (MR)", desc: "배경음악·악기 추출" },
+          { value: "both" as const, label: "전체 ZIP", desc: "보컬과 반주를 함께 저장" },
+          { value: "vocals" as const, label: "보컬만", desc: "목소리·리드 보컬 추출" },
+          { value: "no_vocals" as const, label: "반주만", desc: "MR·배경음악 저장" },
         ]).map((opt) => (
           <button
             key={opt.value}
             type="button"
             onClick={() => setTarget(opt.value)}
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 8,
-              border: `2px solid ${target === opt.value ? "var(--accent)" : "var(--border)"}`,
-              background: target === opt.value ? "var(--accent-subtle)" : "var(--surface-1)",
-              cursor: "pointer",
-              textAlign: "left",
-            }}
+            className={`vocal-option-card${target === opt.value ? " is-active" : ""}`}
           >
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{opt.label}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{opt.desc}</div>
+            <strong>{opt.label}</strong>
+            <span>{opt.desc}</span>
           </button>
         ))}
+      </div>
+
+      <div className="vocal-settings-grid">
+        <div className="field-block">
+          <span>저장 형식</span>
+          <div className="segmented-control">
+            {(["mp3", "wav"] as VocalFormat[]).map((item) => (
+              <button key={item} type="button" className={format === item ? "is-active" : ""} onClick={() => setFormat(item)}>
+                {item.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field-block">
+          <span>처리 품질</span>
+          <div className="segmented-control three">
+            {([
+              { value: "fast" as const, label: "빠름" },
+              { value: "balanced" as const, label: "표준" },
+              { value: "quality" as const, label: "고품질" },
+            ]).map((item) => (
+              <button key={item.value} type="button" className={quality === item.value ? "is-active" : ""} onClick={() => setQuality(item.value)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="tool-actions-row">
@@ -5360,38 +5442,61 @@ function VocalSeparateTool() {
           disabled={status === "loading" || (!url.trim() && !file)}
         >
           <Download size={16} />
-          {status === "loading" ? "AI 분리 중… (1~5분)" : `${target === "vocals" ? "보컬" : "반주"} 다운로드`}
+          {status === "loading" ? "AI 분리 중..." : target === "both" ? "보컬·반주 ZIP 다운로드" : `${target === "vocals" ? "보컬" : "반주"} 다운로드`}
         </button>
         {(status === "done" || status === "error") && (
-          <button type="button" onClick={() => { setUrl(""); setFile(null); setStatus("idle"); setErrorMsg(""); }}>
+          <button type="button" onClick={() => { setUrl(""); setFile(null); setStatus("idle"); setErrorMsg(""); clearResult(); }}>
             <RotateCcw size={16} /> 초기화
           </button>
         )}
       </div>
 
       {status === "loading" && (
-        <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
-          🧠 Demucs AI가 음원을 분석하고 있습니다. 길이에 따라 1~5분 소요됩니다…
-        </p>
+        <p className="vocal-status-text">Demucs가 음원을 분리하고 있습니다. 긴 파일이나 고품질 모드는 시간이 더 걸릴 수 있습니다.</p>
       )}
       {status === "done" && (
-        <p style={{ marginTop: 12, color: "var(--green)", fontSize: 13 }}>
-          ✅ 분리 완료! 브라우저 다운로드 폴더를 확인하세요.
-        </p>
+        <p className="vocal-status-text success">분리 완료. 자동 저장이 막히면 아래 다운로드 버튼을 눌러주세요.</p>
+      )}
+      {status === "done" && result && (
+        <div className="youtube-download-result">
+          <div className="youtube-download-file">
+            <strong>{result.filename}</strong>
+            <span>{formatNumber(result.size / 1024 / 1024, 1)}MB</span>
+          </div>
+          {target !== "both" && (
+            <audio className="youtube-download-player" src={result.url} controls />
+          )}
+          <div className="tool-actions-row" style={{ marginTop: 10 }}>
+            <a className="primary-action" href={result.url} download={result.filename}>
+              <Download size={16} /> 다운로드 저장
+            </a>
+          </div>
+        </div>
       )}
       {status === "error" && (
-        <p style={{ marginTop: 12, color: "var(--red)", fontSize: 13 }}>
-          ❌ {errorMsg}
-        </p>
+        <p className="vocal-status-text error">{errorMsg}</p>
       )}
 
-      <div style={{ marginTop: 20, padding: "12px 16px", background: "var(--surface-2)", borderRadius: 8, fontSize: 13, color: "var(--text-muted)" }}>
-        <strong style={{ display: "block", marginBottom: 6 }}>🔬 사용된 AI 모델</strong>
-        <p style={{ margin: 0, lineHeight: 1.7 }}>
-          <strong>Demucs (htdemucs)</strong> — Facebook AI Research의 음원 분리 모델.
-          U-Net 기반 하이브리드 트랜스포머로 보컬·드럼·베이스·기타를 분리합니다.
+      <div className="vocal-engine-panel">
+        <strong>분리 엔진</strong>
+        <p>
+          Demucs htdemucs 모델을 서버에서 실행합니다. URL 입력은 yt-dlp로 음성을 준비한 뒤 같은 분리 파이프라인으로 처리합니다.
         </p>
-        <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ CPU 추론으로 약 1~5분 소요. 영상 길이가 짧을수록 빠릅니다.</p>
+        <div className="vocal-dependency-grid">
+          {([
+            { key: "demucs", label: "Demucs" },
+            { key: "ffmpeg", label: "FFmpeg" },
+            { key: "ytdlp", label: "yt-dlp" },
+          ] as const).map((item) => {
+            const dep = health?.[item.key];
+            return (
+              <span key={item.key} className={dep?.ok ? "is-ok" : "is-warn"}>
+                {item.label}
+                <small>{dep ? (dep.ok ? "준비됨" : "확인 필요") : "확인 중"}</small>
+              </span>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
