@@ -5263,6 +5263,10 @@ type VocalStatusResponse = {
   demucs: VocalDependency;
   ytdlp: VocalDependency;
   ffmpeg: VocalDependency;
+  cookies?: {
+    configured: boolean;
+    source: "path" | "base64" | "raw" | null;
+  };
 };
 
 function getFilenameFromDisposition(disposition: string | null, fallback: string) {
@@ -5377,6 +5381,11 @@ function VocalSeparateTool() {
             value={url}
             onChange={(e) => { setUrl(e.target.value); if (status !== "idle") setStatus("idle"); clearResult(); }}
           />
+          {health && !health.cookies?.configured && (
+            <small className="field-help compact-help">
+              배포 서버에서 YouTube URL은 봇 확인에 막힐 수 있습니다. 막히면 파일 업로드를 쓰거나 서버에 YT_COOKIES_B64를 설정해 주세요.
+            </small>
+          )}
         </label>
 
         <label className="field-block">
@@ -5487,8 +5496,11 @@ function VocalSeparateTool() {
             { key: "demucs", label: "Demucs" },
             { key: "ffmpeg", label: "FFmpeg" },
             { key: "ytdlp", label: "yt-dlp" },
+            { key: "cookies", label: "URL 쿠키" },
           ] as const).map((item) => {
-            const dep = health?.[item.key];
+            const dep = item.key === "cookies"
+              ? { ok: Boolean(health?.cookies?.configured) }
+              : health?.[item.key];
             return (
               <span key={item.key} className={dep?.ok ? "is-ok" : "is-warn"}>
                 {item.label}

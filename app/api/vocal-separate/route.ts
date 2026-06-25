@@ -5,6 +5,7 @@ import { readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpCookieStatus } from "@/lib/ytdlpCookies";
 
 export const maxDuration = 600;
 
@@ -13,6 +14,9 @@ type OutputFormat = "mp3" | "wav";
 type SeparationQuality = "fast" | "balanced" | "quality";
 
 const PATH_WITH_LOCAL_BINS = [
+  "/opt/demucs-venv/bin",
+  "/root/.local/bin",
+  "/app/.local/bin",
   "/Users/test/.local/bin",
   "/opt/homebrew/bin",
   "/usr/local/bin",
@@ -104,13 +108,17 @@ async function downloadUrlToWav(url: string) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const inputBase = join(tmpdir(), `vs_${randomUUID()}`);
   const inputFile = `${inputBase}.wav`;
+  const cookieArgs = await getYtDlpCookieArgs();
 
   await runCommand(ytdlpPath, [
+    ...cookieArgs,
     "--format",
     "bestaudio/best",
     "--extract-audio",
     "--audio-format",
     "wav",
+    "--extractor-args",
+    "youtube:player_client=web_safari,web,tv",
     "--no-playlist",
     "--output",
     `${inputBase}.%(ext)s`,
@@ -245,6 +253,7 @@ export async function GET() {
     demucs,
     ytdlp,
     ffmpeg,
+    cookies: getYtDlpCookieStatus(),
   });
 }
 
@@ -287,8 +296,9 @@ export async function POST(req: NextRequest) {
       await writeFile(inputFile, Buffer.from(await file.arrayBuffer()));
     }
   } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : "입력 파일을 준비하지 못했습니다.";
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "입력 파일을 준비하지 못했습니다." },
+      { error: formatYtDlpError(rawMessage) },
       { status: 400 },
     );
   }

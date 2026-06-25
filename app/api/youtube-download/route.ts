@@ -5,6 +5,7 @@ import { createReadStream, stat, unlink } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { formatYtDlpError, getYtDlpCookieArgs } from "@/lib/ytdlpCookies";
 
 const execFileAsync = promisify(execFile);
 const statAsync = promisify(stat);
@@ -17,28 +18,14 @@ function sanitizeFilename(name: string) {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 200);
 }
 
-function getCookiesFile() {
-  return process.env.YT_COOKIES_PATH?.trim() || undefined;
-}
-
-function cleanErrorMessage(message: string) {
-  return message
-    .replace(/\u001b\[[0-9;]*m/g, "")
-    .split("\n")
-    .filter((line) => line.trim() && !line.trim().startsWith("Traceback"))
-    .slice(0, 8)
-    .join("\n")
-    .trim();
-}
-
-async function fetchTitle(ytdlpPath: string, url: string, cookiesFile?: string): Promise<string> {
+async function fetchTitle(ytdlpPath: string, url: string, cookieArgs: string[]): Promise<string> {
   try {
     const args = [
       "--print", "title",
       "--no-playlist",
       "--extractor-args", "youtube:player_client=web_safari,web,tv",
     ];
-    if (cookiesFile) args.push("--cookies", cookiesFile);
+    args.push(...cookieArgs);
     args.push(url);
     const { stdout } = await execFileAsync(ytdlpPath, args, { timeout: 15000 });
     return stdout.trim();
@@ -86,8 +73,8 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ext = isVideo ? "mp4" : audioFmt;
 
-  const cookiesFile = getCookiesFile();
-  const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookiesFile);
+  const cookieArgs = await getYtDlpCookieArgs();
+  const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookieArgs);
   const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "youtube_video" : "youtube_audio");
   const filename = `${safeTitle}.${ext}`;
   const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
@@ -106,14 +93,12 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
 
   // 봇 감지 우회: 쿠키 파일이 설정된 서버에서는 쿠키를 사용하고, 로컬처럼 파일이 없으면 생략합니다.
   const commonArgs = [
+    ...cookieArgs,
     "--extractor-args", "youtube:player_client=web_safari,web,tv",
     "--no-playlist",
     "--output", tmpFile,
     "--quiet",
   ];
-  if (cookiesFile) {
-    commonArgs.unshift("--cookies", cookiesFile);
-  }
 
   const args = isVideo
     ? [
@@ -138,8 +123,7 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   } catch (err) {
     unlink(tmpFile, () => {});
     const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
-    const msg = cleanErrorMessage(rawMsg) || "다운로드 실패";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: formatYtDlpError(rawMsg) }, { status: 500 });
   }
 
   // 파일 크기를 Content-Length로 전달 → 브라우저가 압축 해제 시도 안 함

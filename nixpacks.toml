@@ -1,2 +1,14 @@
 [phases.setup]
-nixPkgs = ['nodejs_22', 'ffmpeg', 'yt-dlp']
+nixPkgs = ['nodejs_22', 'python312', 'python312Packages.pip', 'ffmpeg', 'yt-dlp']
+
+[phases.install]
+cmds = [
+  'npm ci',
+  'python -m pip install --user --no-cache-dir demucs'
+]
+
+[phases.build]
+cmds = ['npm run build']
+
+[start]
+cmd = 'npm run start'
