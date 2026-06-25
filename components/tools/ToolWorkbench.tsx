@@ -5267,6 +5267,11 @@ type VocalStatusResponse = {
     configured: boolean;
     source: "path" | "base64" | "raw" | null;
   };
+  network?: {
+    proxy: boolean;
+    forceIp: "4" | "6" | null;
+    impersonate: string | null;
+  };
 };
 
 function getFilenameFromDisposition(disposition: string | null, fallback: string) {
@@ -5386,6 +5391,11 @@ function VocalSeparateTool() {
               배포 서버에서 YouTube URL은 봇 확인에 막힐 수 있습니다. 막히면 파일 업로드를 쓰거나 서버에 YT_COOKIES_B64를 설정해 주세요.
             </small>
           )}
+          {health?.cookies?.configured && !health.network?.proxy && (
+            <small className="field-help compact-help">
+              쿠키는 준비됐지만 배포 IP가 막히면 신뢰 가능한 YTDLP_PROXY 또는 다른 서버 IP가 필요합니다.
+            </small>
+          )}
         </label>
 
         <label className="field-block">
@@ -5497,14 +5507,17 @@ function VocalSeparateTool() {
             { key: "ffmpeg", label: "FFmpeg" },
             { key: "ytdlp", label: "yt-dlp" },
             { key: "cookies", label: "URL 쿠키" },
+            { key: "network", label: "URL 네트워크" },
           ] as const).map((item) => {
-            const dep = item.key === "cookies"
+            const dep: { ok: boolean; optional?: boolean } | undefined = item.key === "cookies"
               ? { ok: Boolean(health?.cookies?.configured) }
-              : health?.[item.key];
+              : item.key === "network"
+                ? { ok: Boolean(health?.network?.proxy), optional: true }
+                : health?.[item.key];
             return (
               <span key={item.key} className={dep?.ok ? "is-ok" : "is-warn"}>
                 {item.label}
-                <small>{dep ? (dep.ok ? "준비됨" : "확인 필요") : "확인 중"}</small>
+                <small>{dep ? (dep.ok ? "준비됨" : dep.optional ? "선택 사항" : "확인 필요") : "확인 중"}</small>
               </span>
             );
           })}

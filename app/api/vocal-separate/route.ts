@@ -10,6 +10,7 @@ import {
   getYtDlpCookieArgs,
   getYtDlpCookieStatus,
   getYtDlpNetworkArgs,
+  getYtDlpNetworkStatus,
 } from "@/lib/ytdlpCookies";
 
 export const maxDuration = 600;
@@ -261,6 +262,7 @@ export async function GET() {
     ytdlp,
     ffmpeg,
     cookies: getYtDlpCookieStatus(),
+    network: getYtDlpNetworkStatus(),
   });
 }
 

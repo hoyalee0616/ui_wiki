@@ -8,6 +8,12 @@ type CookieStatus = {
   source: "path" | "base64" | "raw" | null;
 };
 
+type NetworkStatus = {
+  proxy: boolean;
+  forceIp: "4" | "6" | null;
+  impersonate: string | null;
+};
+
 let cachedCookieFile: string | null = null;
 let cachedCookieHash: string | null = null;
 
@@ -56,7 +62,51 @@ export function getYtDlpNetworkArgs() {
     process.env.YOUTUBE_PROXY
   )?.trim();
 
-  return proxy ? ["--proxy", proxy] : [];
+  const forceIp = normalizeForceIp(
+    process.env.YTDLP_FORCE_IP ||
+    process.env.YT_DLP_FORCE_IP ||
+    process.env.YOUTUBE_FORCE_IP,
+  );
+  const impersonate = (
+    process.env.YTDLP_IMPERSONATE ||
+    process.env.YT_DLP_IMPERSONATE ||
+    process.env.YOUTUBE_IMPERSONATE
+  )?.trim();
+
+  const args = [];
+  if (proxy) args.push("--proxy", proxy);
+  if (forceIp === "4") args.push("--force-ipv4");
+  if (forceIp === "6") args.push("--force-ipv6");
+  if (impersonate) args.push("--impersonate", impersonate);
+
+  return args;
+}
+
+export function getYtDlpNetworkStatus(): NetworkStatus {
+  const proxy = Boolean((
+    process.env.YTDLP_PROXY ||
+    process.env.YT_DLP_PROXY ||
+    process.env.YOUTUBE_PROXY
+  )?.trim());
+  const forceIp = normalizeForceIp(
+    process.env.YTDLP_FORCE_IP ||
+    process.env.YT_DLP_FORCE_IP ||
+    process.env.YOUTUBE_FORCE_IP,
+  );
+  const impersonate = (
+    process.env.YTDLP_IMPERSONATE ||
+    process.env.YT_DLP_IMPERSONATE ||
+    process.env.YOUTUBE_IMPERSONATE
+  )?.trim() || null;
+
+  return { proxy, forceIp, impersonate };
+}
+
+function normalizeForceIp(value?: string) {
+  const mode = value?.trim().toLowerCase();
+  if (mode === "4" || mode === "ipv4") return "4";
+  if (mode === "6" || mode === "ipv6") return "6";
+  return null;
 }
 
 export function cleanYtDlpError(message: string) {
@@ -76,7 +126,7 @@ export function formatYtDlpError(message: string) {
       return [
         "YouTube가 현재 배포 서버 IP를 봇 확인으로 차단했습니다.",
         "쿠키는 설정되어 있지만 서버 네트워크가 막힌 상태라 URL 대신 파일 업로드를 사용해 주세요.",
-        "URL 처리가 꼭 필요하면 YTDLP_PROXY에 신뢰 가능한 프록시를 설정해야 합니다.",
+        "URL 처리가 꼭 필요하면 YTDLP_PROXY에 신뢰 가능한 프록시나 다른 서버 IP를 설정해야 합니다.",
       ].join("\n");
     }
 
