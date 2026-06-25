@@ -26,6 +26,8 @@ ENV INQUIRIES_DATA_DIR=/app/data
 ENV WHISPER_MODEL=/opt/whisper-models/ggml-small.bin
 ENV PATH="/opt/demucs-venv/bin:/usr/local/bin:${PATH}"
 
+COPY requirements.txt ./requirements.txt
+
 # yt-dlp + ffmpeg + whisper.cpp + Demucs 설치
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -40,7 +42,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     python3 -m venv /opt/demucs-venv && \
     /opt/demucs-venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/demucs-venv/bin/pip install --no-cache-dir demucs && \
+    /opt/demucs-venv/bin/pip install --no-cache-dir -r requirements.txt && \
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp && \
     git clone --depth 1 https://github.com/ggerganov/whisper.cpp /tmp/whisper.cpp && \
