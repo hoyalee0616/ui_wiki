@@ -5290,29 +5290,49 @@ function isYoutubeUrl(url: string) {
   return /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/.test(url.trim());
 }
 
-function getLocalYoutubeHelperOrigin() {
-  if (typeof window === "undefined") return "http://127.0.0.1:8787";
+let localYoutubeHelperOriginCache = "";
+
+function getLocalYoutubeHelperOrigins() {
+  const defaults = ["http://localhost:8787", "http://127.0.0.1:8787"];
+  if (typeof window === "undefined") return defaults;
+
+  let custom = "";
   try {
-    return window.localStorage.getItem("gomdolLocalYoutubeHelper")?.trim() || "http://127.0.0.1:8787";
+    custom = window.localStorage.getItem("gomdolLocalYoutubeHelper")?.trim() || "";
   } catch {
-    return "http://127.0.0.1:8787";
+    custom = "";
   }
+
+  return Array.from(new Set([custom, ...defaults].filter(Boolean)));
 }
 
 async function checkLocalYoutubeHelper(timeoutMs = 900) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${getLocalYoutubeHelperOrigin()}/health`, {
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timer);
+  const origins = [
+    ...(localYoutubeHelperOriginCache ? [localYoutubeHelperOriginCache] : []),
+    ...getLocalYoutubeHelperOrigins(),
+  ];
+
+  for (const origin of Array.from(new Set(origins))) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${origin}/health`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        localYoutubeHelperOriginCache = origin;
+        return true;
+      }
+    } catch {
+      // Try the next loopback host. HTTPS pages can treat localhost and 127.0.0.1 differently.
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
+
+  localYoutubeHelperOriginCache = "";
+  return false;
 }
 
 async function downloadWithLocalYoutubeHelper(
@@ -5320,34 +5340,48 @@ async function downloadWithLocalYoutubeHelper(
   format: LocalYoutubeDownloadFormat,
   timeoutMs = 30 * 60 * 1000,
 ) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${getLocalYoutubeHelperOrigin()}/download`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, format }),
-      signal: controller.signal,
-    });
+  const origins = [
+    ...(localYoutubeHelperOriginCache ? [localYoutubeHelperOriginCache] : []),
+    ...getLocalYoutubeHelperOrigins(),
+  ];
+  let lastError: unknown;
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `로컬 헬퍼 오류 (${res.status})`);
+  for (const origin of Array.from(new Set(origins))) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${origin}/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, format }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `로컬 헬퍼 오류 (${res.status})`);
+      }
+
+      localYoutubeHelperOriginCache = origin;
+      const fallback = format === "video" || format === "video-hq"
+        ? "youtube_video.mp4"
+        : format === "audio-m4a"
+          ? "youtube_audio.m4a"
+          : format === "audio-wav"
+            ? "youtube_audio.wav"
+            : "youtube_audio.mp3";
+      const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
+      const blob = await res.blob();
+      return { blob, filename, type: blob.type || res.headers.get("Content-Type") || "application/octet-stream" };
+    } catch (error) {
+      lastError = error;
+      if (error instanceof Error && !["AbortError", "TypeError"].includes(error.name)) throw error;
+    } finally {
+      window.clearTimeout(timer);
     }
-
-    const fallback = format === "video" || format === "video-hq"
-      ? "youtube_video.mp4"
-      : format === "audio-m4a"
-        ? "youtube_audio.m4a"
-        : format === "audio-wav"
-          ? "youtube_audio.wav"
-          : "youtube_audio.mp3";
-    const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
-    const blob = await res.blob();
-    return { blob, filename, type: blob.type || res.headers.get("Content-Type") || "application/octet-stream" };
-  } finally {
-    window.clearTimeout(timer);
   }
+
+  throw lastError instanceof Error ? lastError : new Error("로컬 헬퍼에 연결할 수 없습니다.");
 }
 
 function VocalSeparateTool() {
