@@ -5,6 +5,7 @@
   "description": "Gomdol Tool utility website",
   "scripts": {
     "dev": "next dev",
+    "local-helper": "node scripts/local-youtube-helper.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

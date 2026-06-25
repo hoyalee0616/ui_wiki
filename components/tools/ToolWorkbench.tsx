@@ -5283,6 +5283,73 @@ function getFilenameFromDisposition(disposition: string | null, fallback: string
   return fallback;
 }
 
+type LocalYoutubeHelperState = "checking" | "available" | "missing";
+type LocalYoutubeDownloadFormat = "audio-mp3" | "audio-m4a" | "audio-wav" | "video" | "video-hq";
+
+function isYoutubeUrl(url: string) {
+  return /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/.test(url.trim());
+}
+
+function getLocalYoutubeHelperOrigin() {
+  if (typeof window === "undefined") return "http://127.0.0.1:8787";
+  try {
+    return window.localStorage.getItem("gomdolLocalYoutubeHelper")?.trim() || "http://127.0.0.1:8787";
+  } catch {
+    return "http://127.0.0.1:8787";
+  }
+}
+
+async function checkLocalYoutubeHelper(timeoutMs = 900) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${getLocalYoutubeHelperOrigin()}/health`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function downloadWithLocalYoutubeHelper(
+  url: string,
+  format: LocalYoutubeDownloadFormat,
+  timeoutMs = 30 * 60 * 1000,
+) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${getLocalYoutubeHelperOrigin()}/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, format }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `로컬 헬퍼 오류 (${res.status})`);
+    }
+
+    const fallback = format === "video" || format === "video-hq"
+      ? "youtube_video.mp4"
+      : format === "audio-m4a"
+        ? "youtube_audio.m4a"
+        : format === "audio-wav"
+          ? "youtube_audio.wav"
+          : "youtube_audio.mp3";
+    const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
+    const blob = await res.blob();
+    return { blob, filename, type: blob.type || res.headers.get("Content-Type") || "application/octet-stream" };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 function VocalSeparateTool() {
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -5292,6 +5359,8 @@ function VocalSeparateTool() {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [health, setHealth] = useState<VocalStatusResponse | null>(null);
+  const [localHelper, setLocalHelper] = useState<LocalYoutubeHelperState>("checking");
+  const [processingSource, setProcessingSource] = useState<"server" | "local">("server");
   const [result, setResult] = useState<{ url: string; filename: string; type: string; size: number } | null>(null);
 
   useEffect(() => {
@@ -5304,6 +5373,16 @@ function VocalSeparateTool() {
       .catch(() => {
         if (alive) setHealth(null);
       });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    checkLocalYoutubeHelper().then((available) => {
+      if (alive) setLocalHelper(available ? "available" : "missing");
+    });
     return () => {
       alive = false;
     };
@@ -5331,6 +5410,7 @@ function VocalSeparateTool() {
     try {
       let res: Response;
       if (file) {
+        setProcessingSource("server");
         const fd = new FormData();
         fd.append("file", file);
         fd.append("target", target);
@@ -5338,11 +5418,30 @@ function VocalSeparateTool() {
         fd.append("quality", quality);
         res = await fetch("/api/vocal-separate", { method: "POST", body: fd });
       } else {
-        res = await fetch("/api/vocal-separate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: url.trim(), target, format, quality }),
-        });
+        const canUseLocalHelper = isYoutubeUrl(url);
+        let helperReady = canUseLocalHelper && localHelper === "available";
+        if (canUseLocalHelper && !helperReady) {
+          helperReady = await checkLocalYoutubeHelper(1200);
+          setLocalHelper(helperReady ? "available" : "missing");
+        }
+
+        if (helperReady) {
+          setProcessingSource("local");
+          const localFile = await downloadWithLocalYoutubeHelper(url.trim(), "audio-mp3");
+          const fd = new FormData();
+          fd.append("file", localFile.blob, localFile.filename);
+          fd.append("target", target);
+          fd.append("format", format);
+          fd.append("quality", quality);
+          res = await fetch("/api/vocal-separate", { method: "POST", body: fd });
+        } else {
+          setProcessingSource("server");
+          res = await fetch("/api/vocal-separate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: url.trim(), target, format, quality }),
+          });
+        }
       }
 
       if (!res.ok) {
@@ -5396,6 +5495,9 @@ function VocalSeparateTool() {
               쿠키는 준비됐지만 배포 IP가 막히면 신뢰 가능한 YTDLP_PROXY 또는 다른 서버 IP가 필요합니다.
             </small>
           )}
+          <small className="field-help compact-help">
+            로컬 헬퍼: {localHelper === "available" ? "켜짐" : localHelper === "checking" ? "확인 중" : "꺼짐"} · Mac에서 <code>npm run local-helper</code>
+          </small>
         </label>
 
         <label className="field-block">
@@ -5471,7 +5573,10 @@ function VocalSeparateTool() {
       </div>
 
       {status === "loading" && (
-        <p className="vocal-status-text">Demucs가 음원을 분리하고 있습니다. 긴 파일이나 고품질 모드는 시간이 더 걸릴 수 있습니다.</p>
+        <p className="vocal-status-text">
+          {processingSource === "local" ? "로컬 헬퍼로 음원을 준비한 뒤 " : ""}
+          Demucs가 음원을 분리하고 있습니다. 긴 파일이나 고품질 모드는 시간이 더 걸릴 수 있습니다.
+        </p>
       )}
       {status === "done" && (
         <p className="vocal-status-text success">분리 완료. 자동 저장이 막히면 아래 다운로드 버튼을 눌러주세요.</p>
@@ -5884,10 +5989,21 @@ function YoutubeDownloadTool() {
   const [format, setFormat] = useState<YtFormat>("audio-mp3");
   const [state, setState] = useState<DownloadState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [localHelper, setLocalHelper] = useState<LocalYoutubeHelperState>("checking");
   const [downloadInfo, setDownloadInfo] = useState<{ url: string; filename: string; type: string; size?: number; format: YtFormat; direct?: boolean } | null>(null);
   const directDownloadUrl = url.trim()
     ? `/api/youtube-download?url=${encodeURIComponent(url.trim())}&format=${encodeURIComponent(format)}`
     : "";
+
+  useEffect(() => {
+    let alive = true;
+    checkLocalYoutubeHelper().then((available) => {
+      if (alive) setLocalHelper(available ? "available" : "missing");
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -5911,6 +6027,34 @@ function YoutubeDownloadTool() {
     clearDownloadInfo();
 
     try {
+      let helperReady = localHelper === "available";
+      if (!helperReady) {
+        helperReady = await checkLocalYoutubeHelper(1200);
+        setLocalHelper(helperReady ? "available" : "missing");
+      }
+
+      if (helperReady) {
+        const localFile = await downloadWithLocalYoutubeHelper(trimmed, format);
+        const objectUrl = URL.createObjectURL(localFile.blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = localFile.filename;
+        link.rel = "noopener";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setDownloadInfo({
+          url: objectUrl,
+          filename: localFile.filename,
+          type: localFile.type,
+          size: localFile.blob.size,
+          format,
+        });
+        setState("done");
+        return;
+      }
+
       if (format === "video" || format === "video-hq") {
         const videoUrl = `/api/youtube-download?url=${encodeURIComponent(trimmed)}&format=${encodeURIComponent(format)}`;
         const link = document.createElement("a");
@@ -5993,6 +6137,9 @@ function YoutubeDownloadTool() {
             }}
             onKeyDown={(e) => e.key === "Enter" && handleDownload()}
           />
+          <small className="field-help compact-help">
+            로컬 헬퍼: {localHelper === "available" ? "켜짐" : localHelper === "checking" ? "확인 중" : "꺼짐"} · Mac에서 <code>npm run local-helper</code>
+          </small>
         </label>
 
         <label className="field-block">
@@ -6043,7 +6190,7 @@ function YoutubeDownloadTool() {
 
       {state === "loading" && (
         <p style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 13 }}>
-          서버에서 {format === "video" || format === "video-hq" ? "영상" : "음성"}을 처리하고 있습니다. {format === "video-hq" ? "고화질 영상은 용량이 크고 몇 분 이상 걸릴 수 있습니다…" : "영상 길이에 따라 수십 초가 걸릴 수 있습니다…"}
+          {localHelper === "available" ? "로컬 헬퍼에서" : "서버에서"} {format === "video" || format === "video-hq" ? "영상" : "음성"}을 처리하고 있습니다. {format === "video-hq" ? "고화질 영상은 용량이 크고 몇 분 이상 걸릴 수 있습니다…" : "영상 길이에 따라 수십 초가 걸릴 수 있습니다…"}
         </p>
       )}
       {state === "done" && (
@@ -6072,9 +6219,11 @@ function YoutubeDownloadTool() {
             <a className="primary-action" href={downloadInfo.url} download={downloadInfo.filename}>
               <Download size={16} /> 다운로드 저장
             </a>
-            <a className="primary-action secondary-action" href={directDownloadUrl}>
-              직접 다운로드
-            </a>
+            {downloadInfo.direct && (
+              <a className="primary-action secondary-action" href={directDownloadUrl}>
+                직접 다운로드
+              </a>
+            )}
             <button type="button" onClick={() => window.open(downloadInfo.url, "_blank", "noopener,noreferrer")}>
               파일 새창 열기
             </button>
