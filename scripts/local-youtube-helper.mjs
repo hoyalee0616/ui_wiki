@@ -22,6 +22,8 @@ function corsHeaders(extra = {}) {
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Private-Network": "true",
     "Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Content-Type, X-Gomdol-Helper",
+    "Private-Network-Access-ID": "02:00:00:00:87:87",
+    "Private-Network-Access-Name": "gomdol-local-youtube-helper",
     "X-Gomdol-Helper": "local-youtube",
     ...extra,
   };

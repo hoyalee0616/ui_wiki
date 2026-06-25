@@ -5292,6 +5292,19 @@ function isYoutubeUrl(url: string) {
 
 let localYoutubeHelperOriginCache = "";
 
+type LocalNetworkRequestInit = RequestInit & { targetAddressSpace?: "local" };
+
+function shouldPreferLocalNetworkAccessHint() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return window.location.protocol === "https:" && !["localhost", "127.0.0.1", "::1"].includes(host);
+}
+
+function localNetworkRequestAttempts(init: RequestInit): LocalNetworkRequestInit[] {
+  const hinted = { ...init, targetAddressSpace: "local" } satisfies LocalNetworkRequestInit;
+  return shouldPreferLocalNetworkAccessHint() ? [hinted, init] : [init, hinted];
+}
+
 function getLocalYoutubeHelperOrigins() {
   const defaults = ["http://localhost:8787", "http://127.0.0.1:8787"];
   if (typeof window === "undefined") return defaults;
@@ -5313,21 +5326,20 @@ async function checkLocalYoutubeHelper(timeoutMs = 900) {
   ];
 
   for (const origin of Array.from(new Set(origins))) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${origin}/health`, {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      if (res.ok) {
-        localYoutubeHelperOriginCache = origin;
-        return true;
+    for (const requestInit of localNetworkRequestAttempts({ cache: "no-store" })) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${origin}/health`, { ...requestInit, signal: controller.signal });
+        if (res.ok) {
+          localYoutubeHelperOriginCache = origin;
+          return true;
+        }
+      } catch {
+        // Try the next loopback host or request mode.
+      } finally {
+        window.clearTimeout(timer);
       }
-    } catch {
-      // Try the next loopback host. HTTPS pages can treat localhost and 127.0.0.1 differently.
-    } finally {
-      window.clearTimeout(timer);
     }
   }
 
@@ -5347,37 +5359,40 @@ async function downloadWithLocalYoutubeHelper(
   let lastError: unknown;
 
   for (const origin of Array.from(new Set(origins))) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${origin}/download`, {
+    const baseRequest = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, format }),
-        signal: controller.signal,
-      });
+      } satisfies RequestInit;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `로컬 헬퍼 오류 (${res.status})`);
+    for (const requestInit of localNetworkRequestAttempts(baseRequest)) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${origin}/download`, { ...requestInit, signal: controller.signal });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `로컬 헬퍼 오류 (${res.status})`);
+        }
+
+        localYoutubeHelperOriginCache = origin;
+        const fallback = format === "video" || format === "video-hq"
+          ? "youtube_video.mp4"
+          : format === "audio-m4a"
+            ? "youtube_audio.m4a"
+            : format === "audio-wav"
+              ? "youtube_audio.wav"
+              : "youtube_audio.mp3";
+        const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
+        const blob = await res.blob();
+        return { blob, filename, type: blob.type || res.headers.get("Content-Type") || "application/octet-stream" };
+      } catch (error) {
+        lastError = error;
+        if (error instanceof Error && !["AbortError", "TypeError"].includes(error.name)) throw error;
+      } finally {
+        window.clearTimeout(timer);
       }
-
-      localYoutubeHelperOriginCache = origin;
-      const fallback = format === "video" || format === "video-hq"
-        ? "youtube_video.mp4"
-        : format === "audio-m4a"
-          ? "youtube_audio.m4a"
-          : format === "audio-wav"
-            ? "youtube_audio.wav"
-            : "youtube_audio.mp3";
-      const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
-      const blob = await res.blob();
-      return { blob, filename, type: blob.type || res.headers.get("Content-Type") || "application/octet-stream" };
-    } catch (error) {
-      lastError = error;
-      if (error instanceof Error && !["AbortError", "TypeError"].includes(error.name)) throw error;
-    } finally {
-      window.clearTimeout(timer);
     }
   }
 
