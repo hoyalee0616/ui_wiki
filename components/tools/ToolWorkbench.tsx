@@ -5443,12 +5443,28 @@ async function downloadWithLocalYoutubeHelper(
 function LocalYoutubeHelperControl({
   state,
   setState,
+  dark = false,
 }: {
   state: LocalYoutubeHelperState;
   setState: (value: SetStateAction<LocalYoutubeHelperState>) => void;
+  dark?: boolean;
 }) {
   const [helperUrl, setHelperUrl] = useState(() => getStoredLocalYoutubeHelperOrigin());
   const [helperMessage, setHelperMessage] = useState("");
+  const controlColor = dark ? "#9ca3af" : undefined;
+  const controlInputStyle = dark
+    ? { flex: "1 1 280px", minHeight: 44, padding: "10px 14px", background: "#111", color: "#e5e5e5", border: "1px solid #2a2a2a" }
+    : { flex: "1 1 280px", minHeight: 44, padding: "10px 14px" };
+  const controlButtonStyle = {
+    minHeight: 44,
+    padding: "0 16px",
+    borderRadius: 6,
+    border: dark ? "1px solid #2a2a2a" : "1px solid var(--border)",
+    background: dark ? "#222" : "var(--surface-1)",
+    color: dark ? "#e5e5e5" : undefined,
+    fontWeight: 700,
+    cursor: "pointer",
+  };
 
   async function saveHelperUrl(nextValue = helperUrl) {
     try {
@@ -5475,7 +5491,7 @@ function LocalYoutubeHelperControl({
 
   return (
     <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-      <small className="field-help compact-help">
+      <small className="field-help compact-help" style={controlColor ? { color: controlColor } : undefined}>
         로컬 헬퍼: {state === "available" ? "켜짐" : state === "checking" ? "확인 중" : "꺼짐"} · Mac에서 <code>npm run local-helper:tunnel</code>
         {helperMessage ? ` · ${helperMessage}` : ""}
       </small>
@@ -5486,19 +5502,19 @@ function LocalYoutubeHelperControl({
           placeholder="배포용 헬퍼 주소 https://....trycloudflare.com"
           value={helperUrl}
           onChange={(e) => setHelperUrl(e.target.value)}
-          style={{ flex: "1 1 280px", minHeight: 44, padding: "10px 14px" }}
+          style={controlInputStyle}
         />
         <button
           type="button"
           onClick={() => saveHelperUrl()}
-          style={{ minHeight: 44, padding: "0 16px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-1)", fontWeight: 700, cursor: "pointer" }}
+          style={controlButtonStyle}
         >
           저장/확인
         </button>
         <button
           type="button"
           onClick={() => saveHelperUrl("")}
-          style={{ minHeight: 44, padding: "0 16px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-1)", fontWeight: 700, cursor: "pointer" }}
+          style={controlButtonStyle}
         >
           기본값
         </button>
@@ -5798,6 +5814,13 @@ const MEDIA_FORMAT_OPTIONS: { value: MediaFormat; label: string }[] = [
   { value: "transcript-only", label: "자막만 (다운로드 X)" },
 ];
 
+function localDownloadFormatForMedia(format: MediaFormat): LocalYoutubeDownloadFormat | null {
+  if (format === "mp4") return "video-hq";
+  if (format === "mp3") return "audio-mp3";
+  if (format === "wav") return "audio-wav";
+  return null;
+}
+
 type QueueStatus = "pending" | "loading" | "done" | "error";
 type QueueItem = {
   id: string;
@@ -5824,7 +5847,18 @@ function InstagramAudioTool() {
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<MediaFormat>("mp4");
   const [withTranscript, setWithTranscript] = useState(false);
+  const [localHelper, setLocalHelper] = useState<LocalYoutubeHelperState>("checking");
   const [queue, setQueue] = useState<QueueItem[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    checkLocalYoutubeHelper().then((available) => {
+      if (alive) setLocalHelper(available ? "available" : "missing");
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function updateItem(id: string, patch: Partial<QueueItem>) {
     setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
@@ -5865,26 +5899,55 @@ function InstagramAudioTool() {
 
       // 파일 다운로드 (transcript-only 모드는 건너뜀)
       if (item.format !== "transcript-only") {
-        const dlRes = await fetch("/api/instagram-audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: item.url, format: item.format }),
-        });
-        if (!dlRes.ok) {
-          const data = await dlRes.json().catch(() => ({}));
-          throw new Error(data.error || `서버 오류 (${dlRes.status})`);
+        const localFormat = localDownloadFormatForMedia(item.format);
+        let helperReady = localHelper === "available";
+        if (!helperReady) {
+          helperReady = await checkLocalYoutubeHelper(1500);
+          setLocalHelper(helperReady ? "available" : "missing");
         }
-        updateItem(item.id, { progress: 80 });
 
-        const blob = await dlRes.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(objectUrl);
+        let downloaded = false;
+        if (helperReady && localFormat) {
+          try {
+            const localFile = await downloadWithLocalYoutubeHelper(item.url, localFormat);
+            updateItem(item.id, { progress: 80 });
+
+            const objectUrl = URL.createObjectURL(localFile.blob);
+            const a = document.createElement("a");
+            a.href = objectUrl;
+            a.download = localFile.filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(objectUrl);
+            downloaded = true;
+          } catch {
+            downloaded = false;
+          }
+        }
+
+        if (!downloaded) {
+          const dlRes = await fetch("/api/instagram-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: item.url, format: item.format }),
+          });
+          if (!dlRes.ok) {
+            const data = await dlRes.json().catch(() => ({}));
+            throw new Error(data.error || `서버 오류 (${dlRes.status})`);
+          }
+          updateItem(item.id, { progress: 80 });
+
+          const blob = await dlRes.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = objectUrl;
+          a.download = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(objectUrl);
+        }
       } else {
         updateItem(item.id, { progress: 50 });
       }
@@ -6018,6 +6081,9 @@ function InstagramAudioTool() {
           </button>
         </div>
         <p style={{ fontSize: 12, color: muted, margin: "8px 0 16px" }}>💡 URL을 복사하면 자동으로 감지됩니다</p>
+        <div style={{ marginBottom: 20 }}>
+          <LocalYoutubeHelperControl state={localHelper} setState={setLocalHelper} dark />
+        </div>
 
         {/* 자막 옵션 */}
         <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>

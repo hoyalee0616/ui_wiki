@@ -13,7 +13,7 @@ const HOST = process.env.GOMDOL_HELPER_HOST || "127.0.0.1";
 const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
 const COOKIE_BROWSER = (process.env.YT_HELPER_COOKIES_BROWSER || "chrome").trim();
 
-const YT_URL_RE = /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/;
+const MEDIA_URL_RE = /^https?:\/\/(www\.)?((youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+|instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+)/i;
 
 function corsHeaders(extra = {}) {
   return {
@@ -159,8 +159,8 @@ async function handleDownload(req, res) {
   const url = typeof payload.url === "string" ? payload.url.trim() : "";
   const format = typeof payload.format === "string" ? payload.format : "audio-mp3";
 
-  if (!YT_URL_RE.test(url)) {
-    sendJson(res, 400, { error: "유효한 YouTube URL을 입력해 주세요." });
+  if (!MEDIA_URL_RE.test(url)) {
+    sendJson(res, 400, { error: "유효한 YouTube 또는 Instagram URL을 입력해 주세요." });
     return;
   }
 
