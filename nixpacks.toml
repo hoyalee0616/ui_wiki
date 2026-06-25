@@ -1,5 +1,6 @@
 [variables]
 DEMUCS_PATH = '/opt/venv/bin/demucs'
+YTDLP_PATH = '/opt/venv/bin/yt-dlp'
 
 [phases.setup]
 nixPkgs = ['nodejs_22', 'python312', 'python312Packages.pip', 'ffmpeg', 'yt-dlp']
@@ -9,7 +10,8 @@ cmds = [
   'npm ci',
   'python -m venv /opt/venv',
   '/opt/venv/bin/pip install --no-cache-dir --upgrade pip',
-  '/opt/venv/bin/pip install --no-cache-dir -r requirements.txt'
+  '/opt/venv/bin/pip install --no-cache-dir -r requirements.txt',
+  '/opt/venv/bin/pip install --no-cache-dir --upgrade yt-dlp'
 ]
 
 [phases.build]
