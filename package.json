@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "local-helper": "node scripts/local-youtube-helper.mjs",
+    "local-helper:tunnel": "node scripts/local-youtube-helper-tunnel.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

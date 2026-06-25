@@ -5290,33 +5290,74 @@ function isYoutubeUrl(url: string) {
   return /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/.test(url.trim());
 }
 
+const LOCAL_YOUTUBE_HELPER_STORAGE_KEY = "gomdolLocalYoutubeHelper";
+const LOCAL_YOUTUBE_HELPER_DEFAULT_ORIGINS = ["http://localhost:8787", "http://127.0.0.1:8787"];
+
 let localYoutubeHelperOriginCache = "";
 
 type LocalNetworkRequestInit = RequestInit & { targetAddressSpace?: "local" };
 
-function shouldPreferLocalNetworkAccessHint() {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-  return window.location.protocol === "https:" && !["localhost", "127.0.0.1", "::1"].includes(host);
+function isLoopbackOrPrivateHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.endsWith(".local") ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
 }
 
-function localNetworkRequestAttempts(init: RequestInit): LocalNetworkRequestInit[] {
+function isLocalNetworkOrigin(origin: string) {
+  try {
+    return isLoopbackOrPrivateHost(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function shouldPreferLocalNetworkAccessHint(origin: string) {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return window.location.protocol === "https:" && !isLoopbackOrPrivateHost(host) && isLocalNetworkOrigin(origin);
+}
+
+function localNetworkRequestAttempts(origin: string, init: RequestInit): LocalNetworkRequestInit[] {
   const hinted = { ...init, targetAddressSpace: "local" } satisfies LocalNetworkRequestInit;
-  return shouldPreferLocalNetworkAccessHint() ? [hinted, init] : [init, hinted];
+  return shouldPreferLocalNetworkAccessHint(origin) ? [hinted, init] : [init];
+}
+
+function normalizeLocalYoutubeHelperOrigin(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const parsed = new URL(withProtocol);
+  const isAllowedProtocol =
+    parsed.protocol === "https:" ||
+    (parsed.protocol === "http:" && isLoopbackOrPrivateHost(parsed.hostname));
+
+  if (!isAllowedProtocol) {
+    throw new Error("HTTPS 주소 또는 로컬 HTTP 주소만 사용할 수 있습니다.");
+  }
+
+  return parsed.origin;
+}
+
+function getStoredLocalYoutubeHelperOrigin() {
+  if (typeof window === "undefined") return "";
+  try {
+    return normalizeLocalYoutubeHelperOrigin(window.localStorage.getItem(LOCAL_YOUTUBE_HELPER_STORAGE_KEY) || "");
+  } catch {
+    return "";
+  }
 }
 
 function getLocalYoutubeHelperOrigins() {
-  const defaults = ["http://localhost:8787", "http://127.0.0.1:8787"];
-  if (typeof window === "undefined") return defaults;
-
-  let custom = "";
-  try {
-    custom = window.localStorage.getItem("gomdolLocalYoutubeHelper")?.trim() || "";
-  } catch {
-    custom = "";
-  }
-
-  return Array.from(new Set([custom, ...defaults].filter(Boolean)));
+  return Array.from(new Set([getStoredLocalYoutubeHelperOrigin(), ...LOCAL_YOUTUBE_HELPER_DEFAULT_ORIGINS].filter(Boolean)));
 }
 
 async function checkLocalYoutubeHelper(timeoutMs = 900) {
@@ -5326,7 +5367,7 @@ async function checkLocalYoutubeHelper(timeoutMs = 900) {
   ];
 
   for (const origin of Array.from(new Set(origins))) {
-    for (const requestInit of localNetworkRequestAttempts({ cache: "no-store" })) {
+    for (const requestInit of localNetworkRequestAttempts(origin, { cache: "no-store" })) {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -5365,7 +5406,7 @@ async function downloadWithLocalYoutubeHelper(
         body: JSON.stringify({ url, format }),
       } satisfies RequestInit;
 
-    for (const requestInit of localNetworkRequestAttempts(baseRequest)) {
+    for (const requestInit of localNetworkRequestAttempts(origin, baseRequest)) {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -5397,6 +5438,73 @@ async function downloadWithLocalYoutubeHelper(
   }
 
   throw lastError instanceof Error ? lastError : new Error("로컬 헬퍼에 연결할 수 없습니다.");
+}
+
+function LocalYoutubeHelperControl({
+  state,
+  setState,
+}: {
+  state: LocalYoutubeHelperState;
+  setState: (value: SetStateAction<LocalYoutubeHelperState>) => void;
+}) {
+  const [helperUrl, setHelperUrl] = useState(() => getStoredLocalYoutubeHelperOrigin());
+  const [helperMessage, setHelperMessage] = useState("");
+
+  async function saveHelperUrl(nextValue = helperUrl) {
+    try {
+      const normalized = normalizeLocalYoutubeHelperOrigin(nextValue);
+      if (normalized) {
+        window.localStorage.setItem(LOCAL_YOUTUBE_HELPER_STORAGE_KEY, normalized);
+        setHelperUrl(normalized);
+      } else {
+        window.localStorage.removeItem(LOCAL_YOUTUBE_HELPER_STORAGE_KEY);
+        setHelperUrl("");
+      }
+
+      localYoutubeHelperOriginCache = "";
+      setState("checking");
+      setHelperMessage("연결 확인 중...");
+      const available = await checkLocalYoutubeHelper(2500);
+      setState(available ? "available" : "missing");
+      setHelperMessage(available ? "연결됨" : "저장됐지만 연결 확인 실패");
+    } catch (error) {
+      setState("missing");
+      setHelperMessage(error instanceof Error ? error.message : "헬퍼 주소를 확인해 주세요.");
+    }
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+      <small className="field-help compact-help">
+        로컬 헬퍼: {state === "available" ? "켜짐" : state === "checking" ? "확인 중" : "꺼짐"} · Mac에서 <code>npm run local-helper:tunnel</code>
+        {helperMessage ? ` · ${helperMessage}` : ""}
+      </small>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <input
+          className="tool-input"
+          type="url"
+          placeholder="배포용 헬퍼 주소 https://....trycloudflare.com"
+          value={helperUrl}
+          onChange={(e) => setHelperUrl(e.target.value)}
+          style={{ flex: "1 1 280px", minHeight: 44, padding: "10px 14px" }}
+        />
+        <button
+          type="button"
+          onClick={() => saveHelperUrl()}
+          style={{ minHeight: 44, padding: "0 16px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-1)", fontWeight: 700, cursor: "pointer" }}
+        >
+          저장/확인
+        </button>
+        <button
+          type="button"
+          onClick={() => saveHelperUrl("")}
+          style={{ minHeight: 44, padding: "0 16px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-1)", fontWeight: 700, cursor: "pointer" }}
+        >
+          기본값
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function VocalSeparateTool() {
@@ -5544,9 +5652,7 @@ function VocalSeparateTool() {
               쿠키는 준비됐지만 배포 IP가 막히면 신뢰 가능한 YTDLP_PROXY 또는 다른 서버 IP가 필요합니다.
             </small>
           )}
-          <small className="field-help compact-help">
-            로컬 헬퍼: {localHelper === "available" ? "켜짐" : localHelper === "checking" ? "확인 중" : "꺼짐"} · Mac에서 <code>npm run local-helper</code>
-          </small>
+          <LocalYoutubeHelperControl state={localHelper} setState={setLocalHelper} />
         </label>
 
         <label className="field-block">
@@ -6186,9 +6292,7 @@ function YoutubeDownloadTool() {
             }}
             onKeyDown={(e) => e.key === "Enter" && handleDownload()}
           />
-          <small className="field-help compact-help">
-            로컬 헬퍼: {localHelper === "available" ? "켜짐" : localHelper === "checking" ? "확인 중" : "꺼짐"} · Mac에서 <code>npm run local-helper</code>
-          </small>
+          <LocalYoutubeHelperControl state={localHelper} setState={setLocalHelper} />
         </label>
 
         <label className="field-block">
