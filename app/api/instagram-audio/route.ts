@@ -13,6 +13,63 @@ function cleanup(path: string) {
 
 type Format = "mp3" | "wav" | "mp4";
 
+function sanitizeFilename(name: string) {
+  return name
+    .normalize("NFC")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+function contentDisposition(filename: string) {
+  const safeFilename = sanitizeFilename(filename) || "download";
+  const asciiFilename = safeFilename.replace(/[^\x20-\x7E]/g, "_");
+  return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
+}
+
+function runProcess(command: string, args: string[], timeoutMs = 120000) {
+  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    const proc = spawn(command, args);
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      reject(new Error(`${command} timeout`));
+    }, timeoutMs);
+
+    proc.stdout.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    proc.stderr.on("data", (d: Buffer) => {
+      const text = d.toString();
+      stderr += text;
+      console.error(`[${command}]`, text);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      reject(new Error(stderr || `${command} exit ${code}`));
+    });
+    proc.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+async function fetchTitle(ytdlpPath: string, url: string) {
+  try {
+    const { stdout } = await runProcess(ytdlpPath, ["--print", "title", "--no-playlist", "--quiet", url], 15000);
+    return sanitizeFilename(stdout.trim());
+  } catch {
+    return "";
+  }
+}
+
 export async function POST(req: NextRequest) {
   const { url, format = "wav" } = await req.json() as { url: string; format?: Format };
 
@@ -41,6 +98,7 @@ export async function POST(req: NextRequest) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
   const id = randomUUID();
+  const title = await fetchTitle(ytdlpPath, url);
 
   // ── MP4 영상 다운로드 ──────────────────────────────────────
   if (format === "mp4") {
@@ -73,7 +131,7 @@ export async function POST(req: NextRequest) {
         headers: {
           "Content-Type": "video/mp4",
           "Content-Length": String(fileSize),
-          "Content-Disposition": 'attachment; filename="video.mp4"',
+          "Content-Disposition": contentDisposition(`${title || "video"}.mp4`),
           "Cache-Control": "no-store",
         },
       });
@@ -126,13 +184,13 @@ export async function POST(req: NextRequest) {
     fileStream.on("close", () => cleanup(outFile));
 
     const contentType = format === "mp3" ? "audio/mpeg" : "audio/wav";
-    const filename = `audio.${outExt}`;
+    const filename = `${title || "audio"}.${outExt}`;
 
     return new Response(fileStream as unknown as ReadableStream, {
       headers: {
         "Content-Type": contentType,
         "Content-Length": String(fileSize),
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename),
         "Cache-Control": "no-store",
       },
     });

@@ -109,7 +109,6 @@ function ytdlpArgs(url, format, outPattern) {
     "--no-playlist",
     "--output",
     outPattern,
-    "--restrict-filenames",
     "--quiet",
     "--no-warnings",
   ];
