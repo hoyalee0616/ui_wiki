@@ -5,7 +5,7 @@ import { createReadStream, stat, unlink } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { formatYtDlpError, getYtDlpCookieArgs } from "@/lib/ytdlpCookies";
+import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
 
 const execFileAsync = promisify(execFile);
 const statAsync = promisify(stat);
@@ -18,7 +18,12 @@ function sanitizeFilename(name: string) {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 200);
 }
 
-async function fetchTitle(ytdlpPath: string, url: string, cookieArgs: string[]): Promise<string> {
+async function fetchTitle(
+  ytdlpPath: string,
+  url: string,
+  cookieArgs: string[],
+  networkArgs: string[],
+): Promise<string> {
   try {
     const args = [
       "--print", "title",
@@ -26,6 +31,7 @@ async function fetchTitle(ytdlpPath: string, url: string, cookieArgs: string[]):
       "--extractor-args", "youtube:player_client=web_safari,web,tv",
     ];
     args.push(...cookieArgs);
+    args.push(...networkArgs);
     args.push(url);
     const { stdout } = await execFileAsync(ytdlpPath, args, { timeout: 15000 });
     return stdout.trim();
@@ -74,7 +80,8 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   const ext = isVideo ? "mp4" : audioFmt;
 
   const cookieArgs = await getYtDlpCookieArgs();
-  const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookieArgs);
+  const networkArgs = getYtDlpNetworkArgs();
+  const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookieArgs, networkArgs);
   const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "youtube_video" : "youtube_audio");
   const filename = `${safeTitle}.${ext}`;
   const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
@@ -94,6 +101,7 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   // 봇 감지 우회: 쿠키 파일이 설정된 서버에서는 쿠키를 사용하고, 로컬처럼 파일이 없으면 생략합니다.
   const commonArgs = [
     ...cookieArgs,
+    ...networkArgs,
     "--extractor-args", "youtube:player_client=web_safari,web,tv",
     "--no-playlist",
     "--output", tmpFile,

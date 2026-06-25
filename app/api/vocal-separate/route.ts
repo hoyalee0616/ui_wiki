@@ -5,7 +5,12 @@ import { readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpCookieStatus } from "@/lib/ytdlpCookies";
+import {
+  formatYtDlpError,
+  getYtDlpCookieArgs,
+  getYtDlpCookieStatus,
+  getYtDlpNetworkArgs,
+} from "@/lib/ytdlpCookies";
 
 export const maxDuration = 600;
 
@@ -109,9 +114,11 @@ async function downloadUrlToWav(url: string) {
   const inputBase = join(tmpdir(), `vs_${randomUUID()}`);
   const inputFile = `${inputBase}.wav`;
   const cookieArgs = await getYtDlpCookieArgs();
+  const networkArgs = getYtDlpNetworkArgs();
 
   await runCommand(ytdlpPath, [
     ...cookieArgs,
+    ...networkArgs,
     "--format",
     "bestaudio/best",
     "--extract-audio",

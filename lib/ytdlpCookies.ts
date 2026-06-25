@@ -49,6 +49,16 @@ export async function getYtDlpCookieArgs() {
   return ["--cookies", file];
 }
 
+export function getYtDlpNetworkArgs() {
+  const proxy = (
+    process.env.YTDLP_PROXY ||
+    process.env.YT_DLP_PROXY ||
+    process.env.YOUTUBE_PROXY
+  )?.trim();
+
+  return proxy ? ["--proxy", proxy] : [];
+}
+
 export function cleanYtDlpError(message: string) {
   return message
     .replace(/\u001b\[[0-9;]*m/g, "")
@@ -62,6 +72,14 @@ export function cleanYtDlpError(message: string) {
 export function formatYtDlpError(message: string) {
   const clean = cleanYtDlpError(message);
   if (/confirm you'?re not a bot|sign in to confirm|cookies/i.test(clean)) {
+    if (getYtDlpCookieStatus().configured) {
+      return [
+        "YouTube가 현재 배포 서버 IP를 봇 확인으로 차단했습니다.",
+        "쿠키는 설정되어 있지만 서버 네트워크가 막힌 상태라 URL 대신 파일 업로드를 사용해 주세요.",
+        "URL 처리가 꼭 필요하면 YTDLP_PROXY에 신뢰 가능한 프록시를 설정해야 합니다.",
+      ].join("\n");
+    }
+
     return [
       "YouTube가 배포 서버 접속을 봇 확인으로 막았습니다.",
       "서버 환경변수에 YT_COOKIES_B64를 설정하거나, URL 대신 파일 업로드로 분리해 주세요.",
