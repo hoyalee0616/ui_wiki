@@ -1,6 +1,5 @@
 [variables]
-PATH = '/opt/venv/bin:$PATH'
-VIRTUAL_ENV = '/opt/venv'
+DEMUCS_PATH = '/opt/venv/bin/demucs'
 
 [phases.setup]
 nixPkgs = ['nodejs_22', 'python312', 'python312Packages.pip', 'ffmpeg', 'yt-dlp']
