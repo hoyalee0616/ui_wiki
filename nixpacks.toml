@@ -1,10 +1,16 @@
+[variables]
+PATH = '/opt/venv/bin:$PATH'
+VIRTUAL_ENV = '/opt/venv'
+
 [phases.setup]
 nixPkgs = ['nodejs_22', 'python312', 'python312Packages.pip', 'ffmpeg', 'yt-dlp']
 
 [phases.install]
 cmds = [
   'npm ci',
-  'python -m pip install --user --no-cache-dir demucs'
+  'python -m venv /opt/venv',
+  '/opt/venv/bin/pip install --no-cache-dir --upgrade pip',
+  '/opt/venv/bin/pip install --no-cache-dir -r requirements.txt'
 ]
 
 [phases.build]
