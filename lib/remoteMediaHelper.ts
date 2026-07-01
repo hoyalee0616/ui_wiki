@@ -42,3 +42,22 @@ export async function fetchRemoteMediaHelperDownload(url: string, format: string
 
   return new Response(response.body, { headers });
 }
+
+export async function fetchRemoteMediaHelperTranscript(url: string, language = "auto") {
+  const helperUrl = getRemoteMediaHelperUrl();
+  if (!helperUrl) return null;
+
+  const response = await fetch(`${helperUrl}/transcribe-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, format: "txt", language }),
+    signal: AbortSignal.timeout(60 * 60 * 1000),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text().catch(() => "");
+    throw new Error(payload || `remote helper transcript failed: ${response.status}`);
+  }
+
+  return (await response.text()).trim();
+}

@@ -4,13 +4,16 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 
 const PORT = Number(process.env.GOMDOL_HELPER_PORT || 8787);
 const HOST = process.env.GOMDOL_HELPER_HOST || "127.0.0.1";
 const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
+const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+const WHISPER = process.env.WHISPER_PATH || "whisper-cli";
+const WHISPER_MODEL = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-small.bin");
 const COOKIE_BROWSER = (process.env.YT_HELPER_COOKIES_BROWSER || "chrome").trim();
 
 const MEDIA_URL_RE = /^https?:\/\/((www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+|((www|m|vm|vt)\.)?tiktok\.com\/.+|(www\.)?instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+)/i;
@@ -49,6 +52,12 @@ function contentTypeFor(file) {
   if (ext === ".m4a") return "audio/mp4";
   if (ext === ".wav") return "audio/wav";
   return "audio/mpeg";
+}
+
+function subtitleContentType(format) {
+  if (format === "srt") return "application/x-subrip; charset=utf-8";
+  if (format === "vtt") return "text/vtt; charset=utf-8";
+  return "text/plain; charset=utf-8";
 }
 
 function readBody(req) {
@@ -192,13 +201,120 @@ async function handleDownload(req, res) {
   }
 }
 
-async function handleHealth(res) {
+async function transcribeMediaFile(inputFile, workDir, format, language) {
+  const outputFormat = ["txt", "srt", "vtt"].includes(format) ? format : "txt";
+  const lang = language || "auto";
+  const wavFile = join(workDir, `transcribe-${randomUUID()}.wav`);
+
+  await run(FFMPEG, [
+    "-i",
+    inputFile,
+    "-vn",
+    "-acodec",
+    "pcm_s16le",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-y",
+    wavFile,
+  ]);
+
+  const whisperArgs = [
+    "-m",
+    WHISPER_MODEL,
+    "-f",
+    wavFile,
+    "-l",
+    lang,
+    "--threads",
+    String(process.env.WHISPER_THREADS || 8),
+  ];
+
+  if (outputFormat === "srt") whisperArgs.push("-osrt");
+  else if (outputFormat === "vtt") whisperArgs.push("-ovtt");
+  else whisperArgs.push("-otxt", "-nt");
+
+  await run(WHISPER, whisperArgs, 60 * 60 * 1000);
+  return {
+    format: outputFormat,
+    text: (await readFile(`${wavFile}.${outputFormat}`, "utf8")).trim(),
+  };
+}
+
+async function handleTranscribeUrl(req, res) {
+  const body = await readBody(req);
+  const payload = JSON.parse(body || "{}");
+  const url = typeof payload.url === "string" ? payload.url.trim() : "";
+  const format = typeof payload.format === "string" ? payload.format : "txt";
+  const language = typeof payload.language === "string" ? payload.language : "auto";
+
+  if (!MEDIA_URL_RE.test(url)) {
+    sendJson(res, 400, { error: "유효한 YouTube, Instagram 또는 TikTok URL을 입력해 주세요." });
+    return;
+  }
+
+  const workDir = await mkdtemp(join(tmpdir(), `gomdol-tr-${randomUUID()}-`));
+  const outPattern = join(workDir, "source.%(ext)s");
+
   try {
-    const { stdout } = await run(YTDLP, ["--version"], 10000);
+    await run(YTDLP, [
+      ...cookieArgs(),
+      "--format",
+      "bestaudio/best",
+      "--extract-audio",
+      "--audio-format",
+      "mp3",
+      "--no-playlist",
+      "--output",
+      outPattern,
+      "--quiet",
+      "--no-warnings",
+      url,
+    ]);
+    const file = await findOutputFile(workDir);
+    if (!file) throw new Error("자막 추출용 오디오 파일을 찾지 못했습니다.");
+
+    const result = await transcribeMediaFile(file.fullPath, workDir, format, language);
+    const payloadText = result.text || "";
+
+    res.writeHead(200, corsHeaders({
+      "Content-Type": subtitleContentType(result.format),
+      "Content-Length": String(Buffer.byteLength(payloadText)),
+      "Content-Disposition": `attachment; filename="subtitle.${result.format}"`,
+      "Cache-Control": "no-store",
+    }));
+    res.end(payloadText);
+  } catch (error) {
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message.slice(0, 900) : "로컬 자막 생성에 실패했습니다.",
+    });
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function handleHealth(res) {
+  const dependency = async (command, args) => {
+    try {
+      const { stdout } = await run(command, args, 10000);
+      return { ok: true, version: stdout.trim().split(/\r?\n/)[0] || "ready" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "실행할 수 없습니다." };
+    }
+  };
+
+  try {
+    const ytdlp = await dependency(YTDLP, ["--version"]);
+    const ffmpeg = await dependency(FFMPEG, ["-version"]);
+    const whisper = await dependency(WHISPER, ["--help"]);
     sendJson(res, 200, {
       ok: true,
       helper: "gomdol-local-youtube",
-      ytdlp: stdout.trim(),
+      ytdlp: ytdlp.version,
+      ffmpeg: ffmpeg.ok,
+      whisper: whisper.ok,
+      whisperModel: basename(WHISPER_MODEL),
       cookiesFromBrowser: COOKIE_BROWSER || null,
     });
   } catch (error) {
@@ -228,6 +344,11 @@ createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/transcribe-url") {
+      await handleTranscribeUrl(req, res);
+      return;
+    }
+
     sendJson(res, 404, { error: "Not found" });
   } catch (error) {
     sendJson(res, 500, {
@@ -237,5 +358,8 @@ createServer(async (req, res) => {
 }).listen(PORT, HOST, () => {
   console.log(`Gomdol local YouTube helper: http://${HOST}:${PORT}`);
   console.log(`yt-dlp: ${YTDLP}`);
+  console.log(`ffmpeg: ${FFMPEG}`);
+  console.log(`whisper: ${WHISPER}`);
+  console.log(`whisper model: ${WHISPER_MODEL}`);
   console.log(`cookies browser: ${COOKIE_BROWSER || "none"}`);
 });

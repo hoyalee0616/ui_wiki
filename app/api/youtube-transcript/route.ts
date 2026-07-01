@@ -11,6 +11,7 @@ import {
   getYtDlpRetryArgSets,
   shouldRetryYtDlpWithImpersonation,
 } from "@/lib/ytdlpCookies";
+import { fetchRemoteMediaHelperTranscript } from "@/lib/remoteMediaHelper";
 
 export const maxDuration = 300;
 
@@ -148,6 +149,15 @@ export async function POST(req: NextRequest) {
     cleanup(wavFile);
     cleanup(txtFile);
     console.error("[whisper error]", err);
+    try {
+      const helperText = await fetchRemoteMediaHelperTranscript(url, language || "auto");
+      if (helperText) {
+        return NextResponse.json({ text: helperText, engine: "remote-helper", lang: language || "auto" });
+      }
+    } catch (helperErr) {
+      console.error("[remote helper transcript error]", helperErr);
+    }
+
     const rawMsg = err instanceof Error ? err.message : "";
     if (/yt-dlp|youtube|instagram|tiktok|cookies|format|download/i.test(rawMsg)) {
       return NextResponse.json(
