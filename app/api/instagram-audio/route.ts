@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
 
     try {
       await new Promise<void>((resolve, reject) => {
+        let stderr = "";
         const proc = spawn(ytdlpPath, [
           ...cookieArgs,
           ...networkArgs,
@@ -128,8 +129,12 @@ export async function POST(req: NextRequest) {
           "--quiet",
           url,
         ]);
-        proc.stderr.on("data", (d: Buffer) => console.error("[yt-dlp]", d.toString()));
-        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`)));
+        proc.stderr.on("data", (d: Buffer) => {
+          const text = d.toString();
+          stderr += text;
+          console.error("[yt-dlp]", text);
+        });
+        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || `yt-dlp exit ${code}`)));
         proc.on("error", reject);
       });
 
@@ -164,6 +169,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1단계: 최고음질 원본 다운로드
     await new Promise<void>((resolve, reject) => {
+      let stderr = "";
       const proc = spawn(ytdlpPath, [
         ...cookieArgs,
         ...networkArgs,
@@ -173,8 +179,12 @@ export async function POST(req: NextRequest) {
         "--quiet",
         url,
       ]);
-      proc.stderr.on("data", (d: Buffer) => console.error("[yt-dlp]", d.toString()));
-      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`)));
+      proc.stderr.on("data", (d: Buffer) => {
+        const text = d.toString();
+        stderr += text;
+        console.error("[yt-dlp]", text);
+      });
+      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || `yt-dlp exit ${code}`)));
       proc.on("error", reject);
     });
 

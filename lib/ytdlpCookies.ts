@@ -89,6 +89,17 @@ export function getYtDlpNetworkArgs() {
   )?.trim();
 
   const args = [];
+  const jsRuntime = (
+    process.env.YTDLP_JS_RUNTIME ||
+    process.env.YOUTUBE_JS_RUNTIME ||
+    process.env.INSTAGRAM_JS_RUNTIME ||
+    "node"
+  ).trim();
+
+  if (jsRuntime && jsRuntime.toLowerCase() !== "none") {
+    args.push("--js-runtimes", jsRuntime);
+  }
+
   if (proxy) args.push("--proxy", proxy);
   if (forceIp === "4") args.push("--force-ipv4");
   if (forceIp === "6") args.push("--force-ipv6");
@@ -151,6 +162,14 @@ export function formatYtDlpError(message: string) {
     return [
       "영상 사이트가 배포 서버 접속을 봇 확인으로 막았습니다.",
       "서버 환경변수에 YT_COOKIES_B64 또는 INSTAGRAM_COOKIES_B64를 설정하거나, URL 대신 파일 업로드를 사용해 주세요.",
+    ].join("\n");
+  }
+
+  if (/n challenge solving failed|requested format is not available|only images are available/i.test(clean)) {
+    return [
+      "영상 포맷 추출에 실패했습니다.",
+      "서버의 yt-dlp JS challenge 처리가 실패한 상태입니다.",
+      "YTDLP_JS_RUNTIME=node 설정과 최신 yt-dlp가 필요합니다.",
     ].join("\n");
   }
 
