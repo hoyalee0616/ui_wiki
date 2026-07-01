@@ -5889,6 +5889,7 @@ function InstagramAudioTool() {
   async function processItem(item: QueueItem) {
     try {
       updateItem(item.id, { status: "loading", progress: 10 });
+      let localMediaForTranscript: { blob: Blob; filename: string } | null = null;
 
       // 메타데이터 가져오기
       const metaRes = await fetch("/api/youtube-meta", {
@@ -5920,6 +5921,7 @@ function InstagramAudioTool() {
         if (helperReady && localFormat) {
           try {
             const localFile = await downloadWithLocalYoutubeHelper(item.url, localFormat);
+            localMediaForTranscript = { blob: localFile.blob, filename: localFile.filename };
             updateItem(item.id, { progress: 80 });
 
             const objectUrl = URL.createObjectURL(localFile.blob);
@@ -5966,15 +5968,48 @@ function InstagramAudioTool() {
       let transcript: string | undefined;
       const shouldTranscribe = item.format === "transcript-only" || withTranscript;
       if (shouldTranscribe) {
+        if (!localMediaForTranscript) {
+          try {
+            let helperReady = localHelper === "available";
+            if (!helperReady) {
+              helperReady = await checkLocalYoutubeHelper(1800);
+              setLocalHelper(helperReady ? "available" : "missing");
+            }
+            if (helperReady) {
+              const localFile = await downloadWithLocalYoutubeHelper(item.url, "audio-mp3");
+              localMediaForTranscript = { blob: localFile.blob, filename: localFile.filename };
+            }
+          } catch {
+            localMediaForTranscript = null;
+          }
+        }
+
+        if (localMediaForTranscript) {
+          try {
+            const fd = new FormData();
+            fd.append("file", localMediaForTranscript.blob, localMediaForTranscript.filename);
+            fd.append("format", "txt");
+            fd.append("language", "auto");
+            const localTrRes = await fetch("/api/audio-transcribe", { method: "POST", body: fd });
+            if (localTrRes.ok) {
+              transcript = (await localTrRes.text()).trim();
+            }
+          } catch {
+            // Fall through to URL based transcript extraction below.
+          }
+        }
+
         try {
-          const trRes = await fetch("/api/youtube-transcript", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: item.url }),
-          });
-          if (trRes.ok) {
-            const trData = await trRes.json();
-            transcript = trData.text;
+          if (!transcript) {
+            const trRes = await fetch("/api/youtube-transcript", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: item.url }),
+            });
+            if (trRes.ok) {
+              const trData = await trRes.json();
+              transcript = trData.text;
+            }
           }
         } catch {
           // 자막 실패는 무시
@@ -6290,26 +6325,6 @@ function YoutubeDownloadTool() {
         return;
       }
 
-      if (format === "video" || format === "video-hq") {
-        const videoUrl = `/api/youtube-download?url=${encodeURIComponent(trimmed)}&format=${encodeURIComponent(format)}`;
-        const link = document.createElement("a");
-        link.href = videoUrl;
-        link.rel = "noopener";
-        link.style.display = "none";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setDownloadInfo({
-          url: videoUrl,
-          filename: format === "video-hq" ? "media_video_hq.mp4" : "media_video.mp4",
-          type: "video/mp4",
-          format,
-          direct: true,
-        });
-        setState("done");
-        return;
-      }
-
       const res = await fetch("/api/youtube-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6324,7 +6339,11 @@ function YoutubeDownloadTool() {
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
       const asciiMatch = disposition.match(/filename="([^"]+)"/i);
-      const fallback = format === "audio-m4a" ? "media_audio.m4a" : "media_audio.mp3";
+      const fallback = format === "video" || format === "video-hq"
+        ? "media_video.mp4"
+        : format === "audio-m4a"
+          ? "media_audio.m4a"
+          : "media_audio.mp3";
       const filename = utf8Match ? decodeURIComponent(utf8Match[1]) : asciiMatch ? asciiMatch[1] : fallback;
 
       const blob = await res.blob();

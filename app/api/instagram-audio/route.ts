@@ -4,7 +4,13 @@ import { createReadStream, unlink, stat } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
+import {
+  formatYtDlpError,
+  getYtDlpCookieArgs,
+  getYtDlpImpersonationRetryArgs,
+  getYtDlpNetworkArgs,
+  shouldRetryYtDlpWithImpersonation,
+} from "@/lib/ytdlpCookies";
 
 export const maxDuration = 120;
 
@@ -66,6 +72,29 @@ function runProcess(command: string, args: string[], timeoutMs = 120000) {
   });
 }
 
+async function runYtDlpWithRetry(
+  ytdlpPath: string,
+  buildArgs: (networkArgs: string[]) => string[],
+  networkArgs: string[],
+  timeoutMs = 120000,
+) {
+  try {
+    return await runProcess(ytdlpPath, buildArgs(networkArgs), timeoutMs);
+  } catch (err) {
+    const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+    const retryNetworkArgs = getYtDlpImpersonationRetryArgs();
+    if (
+      retryNetworkArgs.length === 0 ||
+      retryNetworkArgs.join("\0") === networkArgs.join("\0") ||
+      !shouldRetryYtDlpWithImpersonation(rawMsg)
+    ) {
+      throw err;
+    }
+
+    return runProcess(ytdlpPath, buildArgs(retryNetworkArgs), timeoutMs);
+  }
+}
+
 async function fetchTitle(ytdlpPath: string, url: string, cookieArgs: string[], networkArgs: string[]) {
   try {
     const { stdout } = await runProcess(ytdlpPath, [
@@ -122,11 +151,9 @@ export async function POST(req: NextRequest) {
     const mp4File = join(tmpdir(), `vid_${id}.mp4`);
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        let stderr = "";
-        const proc = spawn(ytdlpPath, [
+      await runYtDlpWithRetry(ytdlpPath, (activeNetworkArgs) => [
           ...cookieArgs,
-          ...networkArgs,
+          ...activeNetworkArgs,
           "--format", "bestvideo[vcodec^=avc1]+bestaudio/bestvideo[ext=mp4]+bestaudio/best",
           "--merge-output-format", "mp4",
           "--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -b:a 256k -ar 44100 -ac 2",
@@ -134,15 +161,7 @@ export async function POST(req: NextRequest) {
           "--output", mp4File,
           "--quiet",
           normalizedUrl,
-        ]);
-        proc.stderr.on("data", (d: Buffer) => {
-          const text = d.toString();
-          stderr += text;
-          console.error("[yt-dlp]", text);
-        });
-        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || `yt-dlp exit ${code}`)));
-        proc.on("error", reject);
-      });
+        ], networkArgs, 120000);
 
       const fileSize = await new Promise<number>((resolve, reject) =>
         stat(mp4File, (err, s) => err ? reject(err) : resolve(s.size))
@@ -174,25 +193,15 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1단계: 최고음질 원본 다운로드
-    await new Promise<void>((resolve, reject) => {
-      let stderr = "";
-      const proc = spawn(ytdlpPath, [
+    await runYtDlpWithRetry(ytdlpPath, (activeNetworkArgs) => [
         ...cookieArgs,
-        ...networkArgs,
+        ...activeNetworkArgs,
         "--format", "bestaudio",
         "--no-playlist",
         "--output", rawFile,
         "--quiet",
         normalizedUrl,
-      ]);
-      proc.stderr.on("data", (d: Buffer) => {
-        const text = d.toString();
-        stderr += text;
-        console.error("[yt-dlp]", text);
-      });
-      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || `yt-dlp exit ${code}`)));
-      proc.on("error", reject);
-    });
+      ], networkArgs, 120000);
 
     // 2단계: ffmpeg 변환
     const ffmpegArgs = format === "mp3"

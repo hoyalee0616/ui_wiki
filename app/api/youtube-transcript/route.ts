@@ -4,12 +4,73 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
+import {
+  formatYtDlpError,
+  getYtDlpCookieArgs,
+  getYtDlpImpersonationRetryArgs,
+  getYtDlpNetworkArgs,
+  shouldRetryYtDlpWithImpersonation,
+} from "@/lib/ytdlpCookies";
 
 export const maxDuration = 300;
 
 function cleanup(path: string) {
   unlink(path).catch(() => {});
+}
+
+function runYtDlpAudio(
+  ytdlpPath: string,
+  url: string,
+  output: string,
+  cookieArgs: string[],
+  networkArgs: string[],
+) {
+  const buildArgs = (activeNetworkArgs: string[]) => [
+    ...cookieArgs,
+    ...activeNetworkArgs,
+    "--format", "bestaudio",
+    "--no-playlist",
+    "--output", output,
+    "--quiet",
+    url,
+  ];
+
+  return new Promise<void>((resolve, reject) => {
+    let stderr = "";
+    const proc = spawn(ytdlpPath, buildArgs(networkArgs));
+    proc.stderr.on("data", (d: Buffer) => {
+      const text = d.toString();
+      stderr += text;
+      console.error("[yt-dlp]", text);
+    });
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      const retryNetworkArgs = getYtDlpImpersonationRetryArgs();
+      if (
+        retryNetworkArgs.length === 0 ||
+        retryNetworkArgs.join("\0") === networkArgs.join("\0") ||
+        !shouldRetryYtDlpWithImpersonation(stderr)
+      ) {
+        reject(new Error(stderr || `yt-dlp exit ${code}`));
+        return;
+      }
+
+      let retryStderr = "";
+      const retryProc = spawn(ytdlpPath, buildArgs(retryNetworkArgs));
+      retryProc.stderr.on("data", (d: Buffer) => {
+        const text = d.toString();
+        retryStderr += text;
+        console.error("[yt-dlp retry]", text);
+      });
+      retryProc.on("close", (retryCode) => retryCode === 0 ? resolve() : reject(new Error(retryStderr || stderr || `yt-dlp exit ${retryCode}`)));
+      retryProc.on("error", reject);
+    });
+    proc.on("error", reject);
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -33,25 +94,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1) 오디오 다운로드
-    await new Promise<void>((resolve, reject) => {
-      let stderr = "";
-      const proc = spawn(ytdlpPath, [
-        ...cookieArgs,
-        ...networkArgs,
-        "--format", "bestaudio",
-        "--no-playlist",
-        "--output", rawFile,
-        "--quiet",
-        url,
-      ]);
-      proc.stderr.on("data", (d: Buffer) => {
-        const text = d.toString();
-        stderr += text;
-        console.error("[yt-dlp]", text);
-      });
-      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || `yt-dlp exit ${code}`)));
-      proc.on("error", reject);
-    });
+    await runYtDlpAudio(ytdlpPath, url, rawFile, cookieArgs, networkArgs);
 
     // 2) 16kHz mono PCM WAV 변환 (whisper 요구사항)
     await new Promise<void>((resolve, reject) => {

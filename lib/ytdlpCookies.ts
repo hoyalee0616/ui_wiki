@@ -119,6 +119,26 @@ export function getYtDlpNetworkArgs() {
   return args;
 }
 
+export function getYtDlpImpersonationRetryArgs() {
+  const retryTarget = (
+    process.env.YTDLP_RETRY_IMPERSONATE ||
+    process.env.YT_DLP_RETRY_IMPERSONATE ||
+    process.env.YTDLP_IMPERSONATE ||
+    "chrome"
+  )?.trim();
+
+  if (!retryTarget || retryTarget.toLowerCase() === "none") return [];
+
+  const current = getYtDlpNetworkArgs();
+  if (current.includes("--impersonate")) return current;
+  return [...current, "--impersonate", retryTarget];
+}
+
+export function shouldRetryYtDlpWithImpersonation(message: string) {
+  const clean = cleanYtDlpError(message);
+  return /bot|captcha|confirm you'?re not a bot|sign in to confirm|http error 403|forbidden|cloudflare|tls|impersonat|unable to download webpage/i.test(clean);
+}
+
 export function getYtDlpNetworkStatus(): NetworkStatus {
   const proxy = Boolean((
     process.env.YTDLP_PROXY ||
@@ -181,6 +201,13 @@ export function formatYtDlpError(message: string) {
       "영상 포맷 추출에 실패했습니다.",
       "서버의 yt-dlp JS challenge 처리가 실패한 상태입니다.",
       "YTDLP_JS_RUNTIME=node, YTDLP_REMOTE_COMPONENTS=ejs:github 설정과 최신 yt-dlp가 필요합니다.",
+    ].join("\n");
+  }
+
+  if (/impersonate target .* not available|missing dependencies required to support this target|curl_cffi/i.test(clean)) {
+    return [
+      "서버의 브라우저 위장 다운로드 의존성이 부족합니다.",
+      "yt-dlp[default,curl-cffi]가 설치된 새 배포가 필요합니다.",
     ].join("\n");
   }
 

@@ -5,7 +5,13 @@ import { createReadStream, stat, unlink } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
+import {
+  formatYtDlpError,
+  getYtDlpCookieArgs,
+  getYtDlpImpersonationRetryArgs,
+  getYtDlpNetworkArgs,
+  shouldRetryYtDlpWithImpersonation,
+} from "@/lib/ytdlpCookies";
 
 const execFileAsync = promisify(execFile);
 const statAsync = promisify(stat);
@@ -53,6 +59,28 @@ async function fetchTitle(
 
 async function downloadToFile(ytdlpPath: string, args: string[]): Promise<void> {
   await execFileAsync(ytdlpPath, args, { maxBuffer: 1024 * 1024 * 1024 });
+}
+
+async function downloadWithRetry(
+  ytdlpPath: string,
+  buildArgs: (networkArgs: string[]) => string[],
+  networkArgs: string[],
+) {
+  try {
+    await downloadToFile(ytdlpPath, buildArgs(networkArgs));
+  } catch (err) {
+    const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+    const retryNetworkArgs = getYtDlpImpersonationRetryArgs();
+    if (
+      retryNetworkArgs.length === 0 ||
+      retryNetworkArgs.join("\0") === networkArgs.join("\0") ||
+      !shouldRetryYtDlpWithImpersonation(rawMsg)
+    ) {
+      throw err;
+    }
+
+    await downloadToFile(ytdlpPath, buildArgs(retryNetworkArgs));
+  }
 }
 
 function streamFile(tmpFile: string): ReadableStream {
@@ -112,18 +140,19 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
   // 봇 감지 우회: 쿠키 파일이 설정된 서버에서는 쿠키를 사용하고, 로컬처럼 파일이 없으면 생략합니다.
-  const commonArgs = [
-    ...cookieArgs,
-    ...networkArgs,
-    "--no-playlist",
-    "--output", tmpFile,
-    "--quiet",
-  ];
-  if (isYoutubeUrl(normalizedUrl)) {
-    commonArgs.unshift("--extractor-args", "youtube:player_client=web_safari,web,tv");
-  }
+  const buildArgs = (activeNetworkArgs: string[]) => {
+    const commonArgs = [
+      ...cookieArgs,
+      ...activeNetworkArgs,
+      "--no-playlist",
+      "--output", tmpFile,
+      "--quiet",
+    ];
+    if (isYoutubeUrl(normalizedUrl)) {
+      commonArgs.unshift("--extractor-args", "youtube:player_client=web_safari,web,tv");
+    }
 
-  const args = isVideo
+    return isVideo
     ? [
         "--format",
         isHighQualityVideo
@@ -140,9 +169,10 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
         ...commonArgs,
         normalizedUrl,
       ];
+  };
 
   try {
-    await downloadToFile(ytdlpPath, args);
+    await downloadWithRetry(ytdlpPath, buildArgs, networkArgs);
   } catch (err) {
     unlink(tmpFile, () => {});
     const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
