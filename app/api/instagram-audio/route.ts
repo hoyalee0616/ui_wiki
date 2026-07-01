@@ -11,14 +11,21 @@ import {
   getYtDlpRetryArgSets,
   shouldRetryYtDlpWithImpersonation,
 } from "@/lib/ytdlpCookies";
+import { fetchRemoteMediaHelperDownload } from "@/lib/remoteMediaHelper";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 function cleanup(path: string) {
   unlink(path, () => {});
 }
 
 type Format = "mp3" | "wav" | "mp4";
+
+function helperFormatFor(format: Format) {
+  if (format === "mp4") return "video-hq";
+  if (format === "wav") return "audio-wav";
+  return "audio-mp3";
+}
 
 function isTikTokUrl(url: string) {
   return /^https?:\/\/((www|m|vm|vt)\.)?tiktok\.com\/.+/i.test(url);
@@ -183,6 +190,14 @@ export async function POST(req: NextRequest) {
       cleanup(mp4File);
       console.error("[mp4 error]", err);
       const rawMsg = err instanceof Error ? err.message : "영상 다운로드에 실패했습니다.";
+      if (shouldRetryYtDlpWithImpersonation(rawMsg)) {
+        try {
+          const helperResponse = await fetchRemoteMediaHelperDownload(normalizedUrl, helperFormatFor(format));
+          if (helperResponse) return helperResponse;
+        } catch (helperErr) {
+          console.error("[remote helper error]", helperErr);
+        }
+      }
       return NextResponse.json({ error: formatYtDlpError(rawMsg) }, { status: 500 });
     }
   }
@@ -241,6 +256,14 @@ export async function POST(req: NextRequest) {
     cleanup(outFile);
     console.error("[audio error]", err);
     const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+    if (shouldRetryYtDlpWithImpersonation(rawMsg)) {
+      try {
+        const helperResponse = await fetchRemoteMediaHelperDownload(normalizedUrl, helperFormatFor(format));
+        if (helperResponse) return helperResponse;
+      } catch (helperErr) {
+        console.error("[remote helper error]", helperErr);
+      }
+    }
     return NextResponse.json(
       { error: formatYtDlpError(rawMsg) },
       { status: 500 },

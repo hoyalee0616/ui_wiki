@@ -12,11 +12,12 @@ import {
   getYtDlpRetryArgSets,
   shouldRetryYtDlpWithImpersonation,
 } from "@/lib/ytdlpCookies";
+import { fetchRemoteMediaHelperDownload } from "@/lib/remoteMediaHelper";
 
 const execFileAsync = promisify(execFile);
 const statAsync = promisify(stat);
 
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 const YOUTUBE_URL_RE = /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/i;
 const TIKTOK_URL_RE = /^https?:\/\/((www|m|vm|vt)\.)?tiktok\.com\/.+/i;
@@ -181,6 +182,14 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   } catch (err) {
     unlink(tmpFile, () => {});
     const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+    if (shouldRetryYtDlpWithImpersonation(rawMsg)) {
+      try {
+        const helperResponse = await fetchRemoteMediaHelperDownload(normalizedUrl, String(format || "audio-mp3"));
+        if (helperResponse) return helperResponse;
+      } catch (helperErr) {
+        console.error("[remote helper error]", helperErr);
+      }
+    }
     return NextResponse.json({ error: formatYtDlpError(rawMsg) }, { status: 500 });
   }
 
