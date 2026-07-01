@@ -12,7 +12,16 @@ const statAsync = promisify(stat);
 
 export const maxDuration = 180;
 
-const YT_URL_RE = /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/;
+const YOUTUBE_URL_RE = /^https?:\/\/(www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+/i;
+const TIKTOK_URL_RE = /^https?:\/\/((www|m|vm|vt)\.)?tiktok\.com\/.+/i;
+
+function isYoutubeUrl(url: string) {
+  return YOUTUBE_URL_RE.test(url);
+}
+
+function isSupportedMediaUrl(url: string) {
+  return YOUTUBE_URL_RE.test(url) || TIKTOK_URL_RE.test(url);
+}
 
 function sanitizeFilename(name: string) {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 200);
@@ -28,8 +37,10 @@ async function fetchTitle(
     const args = [
       "--print", "title",
       "--no-playlist",
-      "--extractor-args", "youtube:player_client=web_safari,web,tv",
     ];
+    if (isYoutubeUrl(url)) {
+      args.push("--extractor-args", "youtube:player_client=web_safari,web,tv");
+    }
     args.push(...cookieArgs);
     args.push(...networkArgs);
     args.push(url);
@@ -66,9 +77,11 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
     return NextResponse.json({ error: "URL이 필요합니다." }, { status: 400 });
   }
 
-  if (!YT_URL_RE.test(url.trim())) {
+  const normalizedUrl = url.trim();
+
+  if (!isSupportedMediaUrl(normalizedUrl)) {
     return NextResponse.json(
-      { error: "유효한 YouTube URL을 입력해 주세요.\n예) https://www.youtube.com/watch?v=XXXXX" },
+      { error: "유효한 YouTube 또는 TikTok URL을 입력해 주세요.\n예) https://www.youtube.com/watch?v=XXXXX\n예) https://www.tiktok.com/@user/video/XXXXX" },
       { status: 400 },
     );
   }
@@ -81,8 +94,8 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
 
   const cookieArgs = await getYtDlpCookieArgs();
   const networkArgs = getYtDlpNetworkArgs();
-  const rawTitle = await fetchTitle(ytdlpPath, url.trim(), cookieArgs, networkArgs);
-  const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "youtube_video" : "youtube_audio");
+  const rawTitle = await fetchTitle(ytdlpPath, normalizedUrl, cookieArgs, networkArgs);
+  const safeTitle = rawTitle ? sanitizeFilename(rawTitle) : (isVideo ? "media_video" : "media_audio");
   const filename = `${safeTitle}.${ext}`;
   const asciiFilename = safeTitle.replace(/[^\x20-\x7E]/g, "_") + "." + ext;
   const encodedFilename = encodeURIComponent(filename);
@@ -102,11 +115,13 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   const commonArgs = [
     ...cookieArgs,
     ...networkArgs,
-    "--extractor-args", "youtube:player_client=web_safari,web,tv",
     "--no-playlist",
     "--output", tmpFile,
     "--quiet",
   ];
+  if (isYoutubeUrl(normalizedUrl)) {
+    commonArgs.unshift("--extractor-args", "youtube:player_client=web_safari,web,tv");
+  }
 
   const args = isVideo
     ? [
@@ -116,14 +131,14 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
           : "22/18/best[ext=mp4][vcodec^=avc1][acodec!=none][height<=720]/best[ext=mp4][acodec!=none][height<=720]/best[height<=720]",
         "--merge-output-format", "mp4",
         ...commonArgs,
-        url.trim(),
+        normalizedUrl,
       ]
     : [
         "--extract-audio",
         "--audio-format", audioFmt,
         ...(audioFmt === "mp3" ? ["--audio-quality", "0"] : []),
         ...commonArgs,
-        url.trim(),
+        normalizedUrl,
       ];
 
   try {
