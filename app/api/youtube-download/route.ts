@@ -8,8 +8,8 @@ import { randomUUID } from "node:crypto";
 import {
   formatYtDlpError,
   getYtDlpCookieArgs,
-  getYtDlpImpersonationRetryArgs,
   getYtDlpNetworkArgs,
+  getYtDlpRetryArgSets,
   shouldRetryYtDlpWithImpersonation,
 } from "@/lib/ytdlpCookies";
 
@@ -39,7 +39,7 @@ async function fetchTitle(
   cookieArgs: string[],
   networkArgs: string[],
 ): Promise<string> {
-  try {
+  for (const attempt of getYtDlpRetryArgSets(cookieArgs, networkArgs)) {
     const args = [
       "--print", "title",
       "--no-playlist",
@@ -47,14 +47,17 @@ async function fetchTitle(
     if (isYoutubeUrl(url)) {
       args.push("--extractor-args", "youtube:player_client=web_safari,web,tv");
     }
-    args.push(...cookieArgs);
-    args.push(...networkArgs);
+    args.push(...attempt.cookieArgs);
+    args.push(...attempt.networkArgs);
     args.push(url);
-    const { stdout } = await execFileAsync(ytdlpPath, args, { timeout: 15000 });
-    return stdout.trim();
-  } catch {
-    return "";
+    try {
+      const { stdout } = await execFileAsync(ytdlpPath, args, { timeout: 15000 });
+      const title = stdout.trim();
+      if (title) return title;
+    } catch {}
   }
+
+  return "";
 }
 
 async function downloadToFile(ytdlpPath: string, args: string[]): Promise<void> {
@@ -63,24 +66,26 @@ async function downloadToFile(ytdlpPath: string, args: string[]): Promise<void> 
 
 async function downloadWithRetry(
   ytdlpPath: string,
-  buildArgs: (networkArgs: string[]) => string[],
+  buildArgs: (cookieArgs: string[], networkArgs: string[]) => string[],
+  cookieArgs: string[],
   networkArgs: string[],
 ) {
-  try {
-    await downloadToFile(ytdlpPath, buildArgs(networkArgs));
-  } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
-    const retryNetworkArgs = getYtDlpImpersonationRetryArgs();
-    if (
-      retryNetworkArgs.length === 0 ||
-      retryNetworkArgs.join("\0") === networkArgs.join("\0") ||
-      !shouldRetryYtDlpWithImpersonation(rawMsg)
-    ) {
-      throw err;
-    }
+  const attempts = getYtDlpRetryArgSets(cookieArgs, networkArgs);
+  let lastError: unknown = null;
 
-    await downloadToFile(ytdlpPath, buildArgs(retryNetworkArgs));
+  for (let i = 0; i < attempts.length; i += 1) {
+    const attempt = attempts[i];
+    try {
+      await downloadToFile(ytdlpPath, buildArgs(attempt.cookieArgs, attempt.networkArgs));
+      return;
+    } catch (err) {
+      lastError = err;
+      const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+      if (i === 0 && !shouldRetryYtDlpWithImpersonation(rawMsg)) throw err;
+    }
   }
+
+  throw lastError || new Error("다운로드 실패");
 }
 
 function streamFile(tmpFile: string): ReadableStream {
@@ -140,9 +145,9 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   const tmpFile = join(tmpdir(), `yt-${randomUUID()}.${ext}`);
 
   // 봇 감지 우회: 쿠키 파일이 설정된 서버에서는 쿠키를 사용하고, 로컬처럼 파일이 없으면 생략합니다.
-  const buildArgs = (activeNetworkArgs: string[]) => {
+  const buildArgs = (activeCookieArgs: string[], activeNetworkArgs: string[]) => {
     const commonArgs = [
-      ...cookieArgs,
+      ...activeCookieArgs,
       ...activeNetworkArgs,
       "--no-playlist",
       "--output", tmpFile,
@@ -172,7 +177,7 @@ async function handleYoutubeDownload(url: unknown, format: unknown) {
   };
 
   try {
-    await downloadWithRetry(ytdlpPath, buildArgs, networkArgs);
+    await downloadWithRetry(ytdlpPath, buildArgs, cookieArgs, networkArgs);
   } catch (err) {
     unlink(tmpFile, () => {});
     const rawMsg = err instanceof Error ? err.message : "다운로드 실패";

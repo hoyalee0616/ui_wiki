@@ -7,8 +7,8 @@ import { randomUUID } from "node:crypto";
 import {
   formatYtDlpError,
   getYtDlpCookieArgs,
-  getYtDlpImpersonationRetryArgs,
   getYtDlpNetworkArgs,
+  getYtDlpRetryArgSets,
   shouldRetryYtDlpWithImpersonation,
 } from "@/lib/ytdlpCookies";
 
@@ -25,8 +25,8 @@ function runYtDlpAudio(
   cookieArgs: string[],
   networkArgs: string[],
 ) {
-  const buildArgs = (activeNetworkArgs: string[]) => [
-    ...cookieArgs,
+  const buildArgs = (activeCookieArgs: string[], activeNetworkArgs: string[]) => [
+    ...activeCookieArgs,
     ...activeNetworkArgs,
     "--format", "bestaudio",
     "--no-playlist",
@@ -35,9 +35,9 @@ function runYtDlpAudio(
     url,
   ];
 
-  return new Promise<void>((resolve, reject) => {
+  const runAttempt = (attemptCookieArgs: string[], attemptNetworkArgs: string[]) => new Promise<void>((resolve, reject) => {
     let stderr = "";
-    const proc = spawn(ytdlpPath, buildArgs(networkArgs));
+    const proc = spawn(ytdlpPath, buildArgs(attemptCookieArgs, attemptNetworkArgs));
     proc.stderr.on("data", (d: Buffer) => {
       const text = d.toString();
       stderr += text;
@@ -49,28 +49,29 @@ function runYtDlpAudio(
         return;
       }
 
-      const retryNetworkArgs = getYtDlpImpersonationRetryArgs();
-      if (
-        retryNetworkArgs.length === 0 ||
-        retryNetworkArgs.join("\0") === networkArgs.join("\0") ||
-        !shouldRetryYtDlpWithImpersonation(stderr)
-      ) {
-        reject(new Error(stderr || `yt-dlp exit ${code}`));
-        return;
-      }
-
-      let retryStderr = "";
-      const retryProc = spawn(ytdlpPath, buildArgs(retryNetworkArgs));
-      retryProc.stderr.on("data", (d: Buffer) => {
-        const text = d.toString();
-        retryStderr += text;
-        console.error("[yt-dlp retry]", text);
-      });
-      retryProc.on("close", (retryCode) => retryCode === 0 ? resolve() : reject(new Error(retryStderr || stderr || `yt-dlp exit ${retryCode}`)));
-      retryProc.on("error", reject);
+      reject(new Error(stderr || `yt-dlp exit ${code}`));
     });
     proc.on("error", reject);
   });
+
+  return (async () => {
+    const attempts = getYtDlpRetryArgSets(cookieArgs, networkArgs);
+    let lastError: unknown = null;
+
+    for (let i = 0; i < attempts.length; i += 1) {
+      const attempt = attempts[i];
+      try {
+        await runAttempt(attempt.cookieArgs, attempt.networkArgs);
+        return;
+      } catch (err) {
+        lastError = err;
+        const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+        if (i === 0 && !shouldRetryYtDlpWithImpersonation(rawMsg)) throw err;
+      }
+    }
+
+    throw lastError || new Error("yt-dlp 다운로드 실패");
+  })();
 }
 
 export async function POST(req: NextRequest) {

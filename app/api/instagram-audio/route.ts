@@ -7,8 +7,8 @@ import { randomUUID } from "node:crypto";
 import {
   formatYtDlpError,
   getYtDlpCookieArgs,
-  getYtDlpImpersonationRetryArgs,
   getYtDlpNetworkArgs,
+  getYtDlpRetryArgSets,
   shouldRetryYtDlpWithImpersonation,
 } from "@/lib/ytdlpCookies";
 
@@ -74,25 +74,26 @@ function runProcess(command: string, args: string[], timeoutMs = 120000) {
 
 async function runYtDlpWithRetry(
   ytdlpPath: string,
-  buildArgs: (networkArgs: string[]) => string[],
+  buildArgs: (cookieArgs: string[], networkArgs: string[]) => string[],
+  cookieArgs: string[],
   networkArgs: string[],
   timeoutMs = 120000,
 ) {
-  try {
-    return await runProcess(ytdlpPath, buildArgs(networkArgs), timeoutMs);
-  } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
-    const retryNetworkArgs = getYtDlpImpersonationRetryArgs();
-    if (
-      retryNetworkArgs.length === 0 ||
-      retryNetworkArgs.join("\0") === networkArgs.join("\0") ||
-      !shouldRetryYtDlpWithImpersonation(rawMsg)
-    ) {
-      throw err;
-    }
+  const attempts = getYtDlpRetryArgSets(cookieArgs, networkArgs);
+  let lastError: unknown = null;
 
-    return runProcess(ytdlpPath, buildArgs(retryNetworkArgs), timeoutMs);
+  for (let i = 0; i < attempts.length; i += 1) {
+    const attempt = attempts[i];
+    try {
+      return await runProcess(ytdlpPath, buildArgs(attempt.cookieArgs, attempt.networkArgs), timeoutMs);
+    } catch (err) {
+      lastError = err;
+      const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
+      if (i === 0 && !shouldRetryYtDlpWithImpersonation(rawMsg)) throw err;
+    }
   }
+
+  throw lastError || new Error("다운로드 실패");
 }
 
 async function fetchTitle(ytdlpPath: string, url: string, cookieArgs: string[], networkArgs: string[]) {
@@ -151,8 +152,8 @@ export async function POST(req: NextRequest) {
     const mp4File = join(tmpdir(), `vid_${id}.mp4`);
 
     try {
-      await runYtDlpWithRetry(ytdlpPath, (activeNetworkArgs) => [
-          ...cookieArgs,
+      await runYtDlpWithRetry(ytdlpPath, (activeCookieArgs, activeNetworkArgs) => [
+          ...activeCookieArgs,
           ...activeNetworkArgs,
           "--format", "bestvideo[vcodec^=avc1]+bestaudio/bestvideo[ext=mp4]+bestaudio/best",
           "--merge-output-format", "mp4",
@@ -161,7 +162,7 @@ export async function POST(req: NextRequest) {
           "--output", mp4File,
           "--quiet",
           normalizedUrl,
-        ], networkArgs, 120000);
+        ], cookieArgs, networkArgs, 120000);
 
       const fileSize = await new Promise<number>((resolve, reject) =>
         stat(mp4File, (err, s) => err ? reject(err) : resolve(s.size))
@@ -193,15 +194,15 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1단계: 최고음질 원본 다운로드
-    await runYtDlpWithRetry(ytdlpPath, (activeNetworkArgs) => [
-        ...cookieArgs,
+    await runYtDlpWithRetry(ytdlpPath, (activeCookieArgs, activeNetworkArgs) => [
+        ...activeCookieArgs,
         ...activeNetworkArgs,
         "--format", "bestaudio",
         "--no-playlist",
         "--output", rawFile,
         "--quiet",
         normalizedUrl,
-      ], networkArgs, 120000);
+      ], cookieArgs, networkArgs, 120000);
 
     // 2단계: ffmpeg 변환
     const ffmpegArgs = format === "mp3"

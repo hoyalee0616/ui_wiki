@@ -14,6 +14,11 @@ type NetworkStatus = {
   impersonate: string | null;
 };
 
+type YtDlpRetryArgSet = {
+  cookieArgs: string[];
+  networkArgs: string[];
+};
+
 let cachedCookieFile: string | null = null;
 let cachedCookieHash: string | null = null;
 
@@ -132,6 +137,56 @@ export function getYtDlpImpersonationRetryArgs() {
   const current = getYtDlpNetworkArgs();
   if (current.includes("--impersonate")) return current;
   return [...current, "--impersonate", retryTarget];
+}
+
+function withoutPairedOptions(args: string[], options: Set<string>) {
+  const next = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (options.has(args[i])) {
+      i += 1;
+      continue;
+    }
+    next.push(args[i]);
+  }
+  return next;
+}
+
+function withOverrides(baseArgs: string[], extraArgs: string[]) {
+  const pairedOptions = new Set(["--impersonate", "--extractor-args", "--add-header"]);
+  return [...withoutPairedOptions(baseArgs, pairedOptions), ...extraArgs];
+}
+
+function addUniqueArgSet(sets: YtDlpRetryArgSet[], cookieArgs: string[], networkArgs: string[]) {
+  const key = `${cookieArgs.join("\0")}\u0001${networkArgs.join("\0")}`;
+  if (sets.some((set) => `${set.cookieArgs.join("\0")}\u0001${set.networkArgs.join("\0")}` === key)) return;
+  sets.push({ cookieArgs, networkArgs });
+}
+
+export function getYtDlpRetryArgSets(cookieArgs: string[], networkArgs: string[]) {
+  const retryTarget = (
+    process.env.YTDLP_RETRY_IMPERSONATE ||
+    process.env.YT_DLP_RETRY_IMPERSONATE ||
+    "chrome"
+  )?.trim();
+
+  const cookieVariants = cookieArgs.length > 0 ? [cookieArgs, []] : [cookieArgs];
+  const networkVariants = [
+    networkArgs,
+    ...(retryTarget && retryTarget.toLowerCase() !== "none"
+      ? [withOverrides(networkArgs, ["--impersonate", retryTarget])]
+      : []),
+    withOverrides(networkArgs, ["--impersonate", "safari", "--extractor-args", "youtube:player_client=web_safari"]),
+    withOverrides(networkArgs, ["--extractor-args", "youtube:player_client=android_vr,web_safari,web"]),
+    withOverrides(networkArgs, ["--extractor-args", "youtube:player_client=web_embedded,web_safari,web", "--add-header", "Referer:https://www.youtube.com/"]),
+  ];
+
+  const sets: YtDlpRetryArgSet[] = [];
+  for (const activeNetworkArgs of networkVariants) {
+    for (const activeCookieArgs of cookieVariants) {
+      addUniqueArgSet(sets, activeCookieArgs, activeNetworkArgs);
+    }
+  }
+  return sets;
 }
 
 export function shouldRetryYtDlpWithImpersonation(message: string) {
