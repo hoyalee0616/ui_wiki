@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode, type SetStateAction } from
 import { Copy, Download, Plus, Printer, RotateCcw, Search, Upload } from "lucide-react";
 import type { ToolSectionId } from "@/data/tools";
 import { specialChars, specialCharCategories, emojiData, emojiCategories } from "@/data/charData";
+import { AudioConverterTool } from "@/components/tools/AudioConverterTool";
 
 function formatNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("ko-KR", {
@@ -5060,6 +5061,7 @@ export function ToolWorkbench({
 
 /* ── Media Tools ─────────────────────────────────────────── */
 function MediaTools({ toolId }: { toolId: string }) {
+  if (toolId === "audio-converter") return <AudioConverterTool />;
   if (toolId === "instagram-audio") return <InstagramAudioTool />;
   if (toolId === "youtube-download") return <YoutubeDownloadTool />;
   if (toolId === "vocal-separate") return <VocalSeparateTool />;
@@ -5419,12 +5421,12 @@ async function downloadWithLocalYoutubeHelper(
 
         localYoutubeHelperOriginCache = origin;
         const fallback = format === "video" || format === "video-hq"
-          ? "youtube_video.mp4"
+          ? "media_video.mp4"
           : format === "audio-m4a"
-            ? "youtube_audio.m4a"
+            ? "media_audio.m4a"
             : format === "audio-wav"
-              ? "youtube_audio.wav"
-              : "youtube_audio.mp3";
+              ? "media_audio.wav"
+              : "media_audio.mp3";
         const filename = sanitizeDownloadName(getFilenameFromDisposition(res.headers.get("Content-Disposition"), fallback));
         const blob = await res.blob();
         return { blob, filename, type: blob.type || res.headers.get("Content-Type") || "application/octet-stream" };
@@ -5843,6 +5845,14 @@ function formatDuration(sec?: number) {
   return `${m}:${s}`;
 }
 
+function detectMediaSourceLabel(url: string) {
+  const lower = url.toLowerCase();
+  if (lower.includes("tiktok.com")) return "TIKTOK";
+  if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "YOUTUBE";
+  if (lower.includes("instagram.com")) return "INSTAGRAM";
+  return "MEDIA";
+}
+
 function InstagramAudioTool() {
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<MediaFormat>("mp4");
@@ -6032,13 +6042,13 @@ function InstagramAudioTool() {
 
       <div style={{ padding: 20 }}>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: text, margin: "0 0 4px" }}>영상 다운로드</h2>
-        <p style={{ fontSize: 12, color: muted, margin: "0 0 16px" }}>YouTube · Instagram · 1000+ 사이트 지원</p>
+        <p style={{ fontSize: 12, color: muted, margin: "0 0 16px" }}>YouTube · Instagram · TikTok · 1000+ 사이트 지원</p>
 
         {/* URL 입력 + 옵션 */}
         <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 10, padding: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input
             type="text"
-            placeholder="영상 URL 붙여넣기 (여러 개를 줄바꿈으로 추가 가능)"
+            placeholder="YouTube / Instagram / TikTok URL 붙여넣기 (여러 개를 줄바꿈으로 추가 가능)"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -6119,76 +6129,80 @@ function InstagramAudioTool() {
         )}
 
         {queue.map((item) => (
-          <div key={item.id} style={{ background: card, border: `1px solid ${item.status === "loading" ? accent : border}`, borderRadius: 10, padding: 12, marginBottom: 10, display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ width: 80, height: 60, background: "#000", borderRadius: 6, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: muted, fontSize: 24 }}>
-              {item.thumbnail ? (
-                <img src={item.thumbnail} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              ) : (
-                "🎬"
-              )}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, color: text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {item.title ?? item.url}
+          <div key={item.id} style={{ background: card, border: `1px solid ${item.status === "loading" ? accent : border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
+              <div style={{ width: 80, height: 60, background: "#000", borderRadius: 6, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: muted, fontSize: 24 }}>
+                {item.thumbnail ? (
+                  <img src={item.thumbnail} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  "🎬"
+                )}
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4, fontSize: 11, color: muted }}>
-                <span style={{ background: "#333", color: text, padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
-                  {item.source ?? (item.url.includes("youtube") || item.url.includes("youtu.be") ? "YOUTUBE" : "INSTAGRAM")}
-                </span>
-                <span style={{ background: accent, color: "#000", padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
-                  {item.format.toUpperCase()}
-                </span>
-                <span>{formatDuration(item.duration)}</span>
-              </div>
-              {/* 진행 바 */}
-              <div style={{ marginTop: 8, height: 4, background: "#2a2a2a", borderRadius: 2, overflow: "hidden" }}>
-                <div style={{
-                  width: `${item.progress ?? (item.status === "done" ? 100 : item.status === "error" ? 0 : 0)}%`,
-                  height: "100%",
-                  background: item.status === "error" ? "#ef4444" : accent,
-                  transition: "width 0.3s",
-                }} />
-              </div>
-              {item.status === "error" && (
-                <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>❌ {item.errorMsg}</div>
-              )}
-              {item.transcript && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <strong style={{ fontSize: 12, color: accent }}>📝 자막 ({item.transcript.split("\n").length}줄)</strong>
-                    <button type="button" onClick={() => downloadTranscript(item)} style={{ background: "transparent", border: `1px solid ${border}`, color: text, borderRadius: 4, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
-                      <Download size={10} style={{ verticalAlign: "middle" }} /> .txt 저장
-                    </button>
-                  </div>
-                  <div
-                    style={{
-                      width: "100%",
-                      background: "#0a0a0a",
-                      border: `1px solid ${border}`,
-                      borderRadius: 6,
-                      padding: 12,
-                      fontSize: 13,
-                      color: text,
-                      lineHeight: 1.7,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      userSelect: "text",
-                    }}
-                  >
-                    {item.transcript}
-                  </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.title ?? item.url}
                 </div>
-              )}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-              <div style={{ fontSize: 11, color: item.status === "done" ? accent : item.status === "error" ? "#ef4444" : muted, fontWeight: 600 }}>
-                {item.status === "pending" && "대기 중"}
-                {item.status === "loading" && `${item.progress ?? 0}%`}
-                {item.status === "done" && "완료"}
-                {item.status === "error" && "실패"}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4, fontSize: 11, color: muted, flexWrap: "wrap" }}>
+                  <span style={{ background: "#333", color: text, padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
+                    {item.source ?? detectMediaSourceLabel(item.url)}
+                  </span>
+                  <span style={{ background: accent, color: "#000", padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
+                    {item.format.toUpperCase()}
+                  </span>
+                  <span>{formatDuration(item.duration)}</span>
+                </div>
+                <div style={{ marginTop: 8, height: 4, background: "#2a2a2a", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{
+                    width: `${item.progress ?? (item.status === "done" ? 100 : item.status === "error" ? 0 : 0)}%`,
+                    height: "100%",
+                    background: item.status === "error" ? "#ef4444" : accent,
+                    transition: "width 0.3s",
+                  }} />
+                </div>
+                {item.status === "error" && (
+                  <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>❌ {item.errorMsg}</div>
+                )}
               </div>
-              <button type="button" onClick={() => removeItem(item.id)} style={{ background: "transparent", border: "none", color: muted, cursor: "pointer", fontSize: 16 }}>×</button>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                <div style={{ fontSize: 11, color: item.status === "done" ? accent : item.status === "error" ? "#ef4444" : muted, fontWeight: 600 }}>
+                  {item.status === "pending" && "대기 중"}
+                  {item.status === "loading" && `${item.progress ?? 0}%`}
+                  {item.status === "done" && "완료"}
+                  {item.status === "error" && "실패"}
+                </div>
+                <button type="button" onClick={() => removeItem(item.id)} style={{ background: "transparent", border: "none", color: muted, cursor: "pointer", fontSize: 16 }}>×</button>
+              </div>
             </div>
+            {item.transcript && (
+              <div style={{ marginTop: 12, width: "100%" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: 12, color: accent }}>📝 전체 자막 ({item.transcript.split("\n").length}줄)</strong>
+                  <button type="button" onClick={() => downloadTranscript(item)} style={{ background: "transparent", border: `1px solid ${border}`, color: text, borderRadius: 4, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
+                    <Download size={10} style={{ verticalAlign: "middle" }} /> .txt 저장
+                  </button>
+                </div>
+                <div
+                  style={{
+                    width: "100%",
+                    maxHeight: "none",
+                    overflow: "visible",
+                    background: "#0a0a0a",
+                    border: `1px solid ${border}`,
+                    borderRadius: 6,
+                    padding: 12,
+                    fontSize: 13,
+                    color: text,
+                    lineHeight: 1.7,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                    userSelect: "text",
+                  }}
+                >
+                  {item.transcript}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -6287,7 +6301,7 @@ function YoutubeDownloadTool() {
         link.remove();
         setDownloadInfo({
           url: videoUrl,
-          filename: format === "video-hq" ? "youtube_video_hq.mp4" : "youtube_video.mp4",
+          filename: format === "video-hq" ? "media_video_hq.mp4" : "media_video.mp4",
           type: "video/mp4",
           format,
           direct: true,
@@ -6310,7 +6324,7 @@ function YoutubeDownloadTool() {
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
       const asciiMatch = disposition.match(/filename="([^"]+)"/i);
-      const fallback = format === "audio-m4a" ? "youtube_audio.m4a" : "youtube_audio.mp3";
+      const fallback = format === "audio-m4a" ? "media_audio.m4a" : "media_audio.mp3";
       const filename = utf8Match ? decodeURIComponent(utf8Match[1]) : asciiMatch ? asciiMatch[1] : fallback;
 
       const blob = await res.blob();
@@ -6336,17 +6350,17 @@ function YoutubeDownloadTool() {
   return (
     <section className="detail-card workbench-card">
       <div className="workbench-head">
-        <strong>유튜브 다운로드</strong>
-        <span>URL 입력 → MP3 · M4A · MP4 다운로드</span>
+        <strong>영상 다운로드</strong>
+        <span>YouTube · TikTok URL 입력 → MP3 · M4A · MP4 다운로드</span>
       </div>
 
       <div className="form-grid">
         <label className="field-block">
-          <span>YouTube URL</span>
+          <span>YouTube / TikTok URL</span>
           <input
             className="tool-input"
             type="url"
-            placeholder="https://www.youtube.com/watch?v=..."
+            placeholder="https://www.youtube.com/watch?v=... 또는 https://www.tiktok.com/@user/video/..."
             value={url}
             onChange={(e) => {
               setUrl(e.target.value);
@@ -6464,6 +6478,7 @@ function YoutubeDownloadTool() {
           <li>일반 영상: youtube.com/watch?v=XXXXX</li>
           <li>Shorts: youtube.com/shorts/XXXXX</li>
           <li>단축 URL: youtu.be/XXXXX</li>
+          <li>TikTok: tiktok.com/@user/video/XXXXX, vm.tiktok.com/XXXXX</li>
         </ul>
         <p style={{ marginTop: 8, marginBottom: 0 }}>⚠️ 저작권이 있는 콘텐츠는 개인 용도로만 사용하세요.</p>
       </div>
