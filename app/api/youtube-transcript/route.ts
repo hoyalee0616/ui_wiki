@@ -4,6 +4,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
 
 export const maxDuration = 300;
 
@@ -22,6 +23,8 @@ export async function POST(req: NextRequest) {
   const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
   const whisperPath = process.env.WHISPER_PATH || "whisper-cli";
   const modelPath = process.env.WHISPER_MODEL || join(homedir(), ".whisper-models", "ggml-small.bin");
+  const cookieArgs = await getYtDlpCookieArgs();
+  const networkArgs = getYtDlpNetworkArgs();
 
   const id = randomUUID();
   const rawFile = join(tmpdir(), `whisper_raw_${id}`);
@@ -31,15 +34,22 @@ export async function POST(req: NextRequest) {
   try {
     // 1) 오디오 다운로드
     await new Promise<void>((resolve, reject) => {
+      let stderr = "";
       const proc = spawn(ytdlpPath, [
+        ...cookieArgs,
+        ...networkArgs,
         "--format", "bestaudio",
         "--no-playlist",
         "--output", rawFile,
         "--quiet",
         url,
       ]);
-      proc.stderr.on("data", (d: Buffer) => console.error("[yt-dlp]", d.toString()));
-      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`)));
+      proc.stderr.on("data", (d: Buffer) => {
+        const text = d.toString();
+        stderr += text;
+        console.error("[yt-dlp]", text);
+      });
+      proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || `yt-dlp exit ${code}`)));
       proc.on("error", reject);
     });
 
@@ -94,6 +104,13 @@ export async function POST(req: NextRequest) {
     cleanup(wavFile);
     cleanup(txtFile);
     console.error("[whisper error]", err);
+    const rawMsg = err instanceof Error ? err.message : "";
+    if (/yt-dlp|youtube|instagram|tiktok|cookies|format|download/i.test(rawMsg)) {
+      return NextResponse.json(
+        { error: formatYtDlpError(rawMsg) },
+        { status: 500 },
+      );
+    }
     return NextResponse.json(
       { error: "Whisper 자막 추출에 실패했습니다. 모델 파일이 설치되어 있는지 확인하세요." },
       { status: 500 },
