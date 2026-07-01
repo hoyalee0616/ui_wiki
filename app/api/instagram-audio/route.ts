@@ -4,6 +4,7 @@ import { createReadStream, unlink, stat } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { formatYtDlpError, getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
 
 export const maxDuration = 120;
 
@@ -61,9 +62,17 @@ function runProcess(command: string, args: string[], timeoutMs = 120000) {
   });
 }
 
-async function fetchTitle(ytdlpPath: string, url: string) {
+async function fetchTitle(ytdlpPath: string, url: string, cookieArgs: string[], networkArgs: string[]) {
   try {
-    const { stdout } = await runProcess(ytdlpPath, ["--print", "title", "--no-playlist", "--quiet", url], 15000);
+    const { stdout } = await runProcess(ytdlpPath, [
+      ...cookieArgs,
+      ...networkArgs,
+      "--print",
+      "title",
+      "--no-playlist",
+      "--quiet",
+      url,
+    ], 15000);
     return sanitizeFilename(stdout.trim());
   } catch {
     return "";
@@ -98,7 +107,9 @@ export async function POST(req: NextRequest) {
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
   const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
   const id = randomUUID();
-  const title = await fetchTitle(ytdlpPath, url);
+  const cookieArgs = await getYtDlpCookieArgs();
+  const networkArgs = getYtDlpNetworkArgs();
+  const title = await fetchTitle(ytdlpPath, url, cookieArgs, networkArgs);
 
   // ── MP4 영상 다운로드 ──────────────────────────────────────
   if (format === "mp4") {
@@ -107,6 +118,8 @@ export async function POST(req: NextRequest) {
     try {
       await new Promise<void>((resolve, reject) => {
         const proc = spawn(ytdlpPath, [
+          ...cookieArgs,
+          ...networkArgs,
           "--format", "bestvideo[vcodec^=avc1]+bestaudio/bestvideo[ext=mp4]+bestaudio/best",
           "--merge-output-format", "mp4",
           "--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -b:a 256k -ar 44100 -ac 2",
@@ -138,7 +151,8 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       cleanup(mp4File);
       console.error("[mp4 error]", err);
-      return NextResponse.json({ error: "영상 다운로드에 실패했습니다." }, { status: 500 });
+      const rawMsg = err instanceof Error ? err.message : "영상 다운로드에 실패했습니다.";
+      return NextResponse.json({ error: formatYtDlpError(rawMsg) }, { status: 500 });
     }
   }
 
@@ -151,6 +165,8 @@ export async function POST(req: NextRequest) {
     // 1단계: 최고음질 원본 다운로드
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ytdlpPath, [
+        ...cookieArgs,
+        ...networkArgs,
         "--format", "bestaudio",
         "--no-playlist",
         "--output", rawFile,
@@ -198,8 +214,9 @@ export async function POST(req: NextRequest) {
     cleanup(rawFile);
     cleanup(outFile);
     console.error("[audio error]", err);
+    const rawMsg = err instanceof Error ? err.message : "다운로드 실패";
     return NextResponse.json(
-      { error: "다운로드에 실패했습니다. 비공개 계정이거나 삭제된 영상일 수 있습니다." },
+      { error: formatYtDlpError(rawMsg) },
       { status: 500 },
     );
   }

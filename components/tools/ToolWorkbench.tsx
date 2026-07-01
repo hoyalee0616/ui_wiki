@@ -1731,7 +1731,7 @@ function DocumentTools({ toolId }: { toolId: string }) {
             className="char-search-input"
             value={charSearch}
             onChange={(e) => setCharSearch(e.target.value)}
-            placeholder="검색어 입력 (예: 화살표, heart, 별, check...)"
+            placeholder="검색어 입력 (예: 화살표, 웃는, 한숨, 어이없음, 제스처...)"
           />
           {charSearch && (
             <button type="button" className="char-search-clear" onClick={() => setCharSearch("")}>✕</button>
