@@ -17,7 +17,6 @@ type FFmpegInstance = {
 declare global {
   interface Window {
     FFmpegWASM?: { FFmpeg: new () => FFmpegInstance };
-    FFmpegUtil?: { toBlobURL: (url: string, mimeType: string) => Promise<string> };
   }
 }
 
@@ -26,11 +25,9 @@ type Mp3Mode = "cbr" | "vbr";
 type WavCodec = "pcm_s16le" | "pcm_s24le" | "pcm_f32le";
 
 const FFMPEG_VERSION = "0.12.15";
-const FFMPEG_UTIL_VERSION = "0.12.2";
 const FFMPEG_CORE_VERSION = "0.12.10";
 const FFMPEG_CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
 const FFMPEG_SCRIPT_URL = `https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@${FFMPEG_VERSION}/dist/umd/ffmpeg.js`;
-const FFMPEG_UTIL_SCRIPT_URL = `https://cdn.jsdelivr.net/npm/@ffmpeg/util@${FFMPEG_UTIL_VERSION}/dist/umd/index.js`;
 
 const bitrateOptions = ["96", "128", "160", "192", "256", "320", "custom"];
 const sampleRateOptions = [
@@ -106,6 +103,15 @@ function loadScriptOnce(src: string) {
   });
 }
 
+async function toBlobURL(url: string, mimeType: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`FFmpeg core 로드 실패 (${response.status})`);
+  }
+  const buffer = await response.arrayBuffer();
+  return URL.createObjectURL(new Blob([buffer], { type: mimeType }));
+}
+
 export function AudioConverterTool() {
   const ffmpegRef = useRef<FFmpegInstance | null>(null);
   const loadingRef = useRef<Promise<FFmpegInstance> | null>(null);
@@ -138,13 +144,9 @@ export function AudioConverterTool() {
     loadingRef.current = (async () => {
       setStatus("loading-core");
       setProgress(3);
-      await Promise.all([
-        loadScriptOnce(FFMPEG_SCRIPT_URL),
-        loadScriptOnce(FFMPEG_UTIL_SCRIPT_URL),
-      ]);
+      await loadScriptOnce(FFMPEG_SCRIPT_URL);
       const FFmpegConstructor = window.FFmpegWASM?.FFmpeg;
-      const toBlobURL = window.FFmpegUtil?.toBlobURL;
-      if (!FFmpegConstructor || !toBlobURL) {
+      if (!FFmpegConstructor) {
         throw new Error("FFmpeg 로더를 초기화하지 못했습니다.");
       }
 
