@@ -1,33 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, FileAudio, RotateCcw, SlidersHorizontal } from "lucide-react";
-
-type FFmpegFileData = Uint8Array | string;
-type FFmpegInstance = {
-  load(options: { coreURL: string; wasmURL: string }): Promise<void>;
-  on(event: "log", callback: (event: { message: string }) => void): void;
-  on(event: "progress", callback: (event: { progress: number }) => void): void;
-  writeFile(path: string, data: Uint8Array): Promise<void>;
-  readFile(path: string): Promise<FFmpegFileData>;
-  deleteFile(path: string): Promise<void>;
-  exec(args: string[]): Promise<void>;
-};
-
-declare global {
-  interface Window {
-    FFmpegWASM?: { FFmpeg: new () => FFmpegInstance };
-  }
-}
 
 type OutputFormat = "mp3" | "wav";
 type Mp3Mode = "cbr" | "vbr";
 type WavCodec = "pcm_s16le" | "pcm_s24le" | "pcm_f32le";
-
-const FFMPEG_VERSION = "0.12.15";
-const FFMPEG_CORE_VERSION = "0.12.10";
-const FFMPEG_CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
-const FFMPEG_SCRIPT_URL = `https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@${FFMPEG_VERSION}/dist/umd/ffmpeg.js`;
 
 const bitrateOptions = ["96", "128", "160", "192", "256", "320", "custom"];
 const sampleRateOptions = [
@@ -54,14 +32,6 @@ const vbrOptions = [
   { value: "6", label: "용량 우선" },
 ];
 
-function getInputExtension(file: File) {
-  const match = file.name.toLowerCase().match(/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/);
-  if (match) return match[1];
-  if (file.type.includes("wav")) return "wav";
-  if (file.type.includes("mpeg")) return "mp3";
-  return "audio";
-}
-
 function getBaseName(file: File) {
   return file.name.replace(/\.[^/.]+$/, "") || "converted-audio";
 }
@@ -77,44 +47,7 @@ function mimeFor(format: OutputFormat) {
   return format === "mp3" ? "audio/mpeg" : "audio/wav";
 }
 
-function loadScriptOnce(src: string) {
-  return new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[data-audio-converter-src="${src}"]`);
-    if (existing?.dataset.loaded === "true") {
-      resolve();
-      return;
-    }
-    if (existing) {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("FFmpeg 스크립트 로드 실패")), { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.dataset.audioConverterSrc = src;
-    script.addEventListener("load", () => {
-      script.dataset.loaded = "true";
-      resolve();
-    }, { once: true });
-    script.addEventListener("error", () => reject(new Error("FFmpeg 스크립트 로드 실패")), { once: true });
-    document.head.appendChild(script);
-  });
-}
-
-async function toBlobURL(url: string, mimeType: string) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`FFmpeg core 로드 실패 (${response.status})`);
-  }
-  const buffer = await response.arrayBuffer();
-  return URL.createObjectURL(new Blob([buffer], { type: mimeType }));
-}
-
 export function AudioConverterTool() {
-  const ffmpegRef = useRef<FFmpegInstance | null>(null);
-  const loadingRef = useRef<Promise<FFmpegInstance> | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [format, setFormat] = useState<OutputFormat>("mp3");
   const [mp3Mode, setMp3Mode] = useState<Mp3Mode>("cbr");
@@ -125,9 +58,7 @@ export function AudioConverterTool() {
   const [channels, setChannels] = useState("2");
   const [wavCodec, setWavCodec] = useState<WavCodec>("pcm_s16le");
   const [normalize, setNormalize] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading-core" | "converting" | "done" | "error">("idle");
-  const [progress, setProgress] = useState(0);
-  const [log, setLog] = useState("");
+  const [status, setStatus] = useState<"idle" | "converting" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [result, setResult] = useState<{ url: string; filename: string; size: number; mime: string } | null>(null);
 
@@ -136,43 +67,6 @@ export function AudioConverterTool() {
     const numeric = Math.min(Math.max(Number(raw) || 192, 32), 512);
     return String(numeric);
   }, [bitrate, customBitrate]);
-
-  async function loadFfmpeg() {
-    if (ffmpegRef.current) return ffmpegRef.current;
-    if (loadingRef.current) return loadingRef.current;
-
-    loadingRef.current = (async () => {
-      setStatus("loading-core");
-      setProgress(3);
-      await loadScriptOnce(FFMPEG_SCRIPT_URL);
-      const FFmpegConstructor = window.FFmpegWASM?.FFmpeg;
-      if (!FFmpegConstructor) {
-        throw new Error("FFmpeg 로더를 초기화하지 못했습니다.");
-      }
-
-      const ffmpeg = new FFmpegConstructor();
-      ffmpeg.on("log", ({ message }) => {
-        if (message.trim()) setLog(message);
-      });
-      ffmpeg.on("progress", ({ progress: nextProgress }) => {
-        if (Number.isFinite(nextProgress)) {
-          setProgress(Math.min(99, Math.max(8, Math.round(nextProgress * 100))));
-        }
-      });
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
-      });
-      ffmpegRef.current = ffmpeg;
-      return ffmpeg;
-    })();
-
-    try {
-      return await loadingRef.current;
-    } finally {
-      loadingRef.current = null;
-    }
-  }
 
   function clearResult() {
     if (result?.url) URL.revokeObjectURL(result.url);
@@ -183,8 +77,6 @@ export function AudioConverterTool() {
     clearResult();
     setFile(null);
     setStatus("idle");
-    setProgress(0);
-    setLog("");
     setErrorMsg("");
   }
 
@@ -192,52 +84,38 @@ export function AudioConverterTool() {
     if (!file) return;
     clearResult();
     setErrorMsg("");
-    setLog("");
-
-    const inputName = `input.${getInputExtension(file)}`;
-    const outputName = `output.${format}`;
+    setStatus("converting");
 
     try {
-      const ffmpeg = await loadFfmpeg();
-      setStatus("converting");
-      setProgress(8);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("format", format);
+      formData.append("mp3Mode", mp3Mode);
+      formData.append("bitrate", effectiveBitrate);
+      formData.append("vbrQuality", vbrQuality);
+      formData.append("sampleRate", sampleRate);
+      formData.append("channels", channels);
+      formData.append("wavCodec", wavCodec);
+      formData.append("normalize", String(normalize));
 
-      await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
-
-      const args = ["-i", inputName, "-vn", "-map_metadata", "0"];
-      if (sampleRate !== "auto") args.push("-ar", sampleRate);
-      if (channels !== "auto") args.push("-ac", channels);
-      if (normalize) args.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
-
-      if (format === "mp3") {
-        args.push("-codec:a", "libmp3lame");
-        if (mp3Mode === "vbr") {
-          args.push("-q:a", vbrQuality);
-        } else {
-          args.push("-b:a", `${effectiveBitrate}k`);
-        }
-      } else {
-        args.push("-codec:a", wavCodec);
+      const response = await fetch("/api/audio-converter", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `변환 실패 (${response.status})`);
       }
 
-      args.push("-y", outputName);
-      await ffmpeg.exec(args);
-
-      const output = await ffmpeg.readFile(outputName);
-      const bytes = typeof output === "string" ? new TextEncoder().encode(output) : output;
-      const blobPart = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-      const blob = new Blob([blobPart], { type: mimeFor(format) });
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const filename = `${getBaseName(file)}-${format === "mp3" ? `${mp3Mode === "vbr" ? `vbr-q${vbrQuality}` : `${effectiveBitrate}kbps`}` : wavCodec.replace("pcm_", "").replace("le", "")}.${format}`;
-
-      await Promise.allSettled([ffmpeg.deleteFile(inputName), ffmpeg.deleteFile(outputName)]);
-
-      setResult({ url, filename, size: blob.size, mime: blob.type });
-      setProgress(100);
+      const fallbackName = `${getBaseName(file)}.${format}`;
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = decodeURIComponent(disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1] || fallbackName);
+      setResult({ url, filename, size: blob.size, mime: blob.type || mimeFor(format) });
       setStatus("done");
     } catch (err) {
       setStatus("error");
-      setProgress(0);
       setErrorMsg(err instanceof Error ? err.message : "오디오 변환 중 오류가 발생했습니다.");
     }
   }
@@ -246,7 +124,7 @@ export function AudioConverterTool() {
     <section className="detail-card workbench-card audio-converter-card">
       <div className="workbench-head">
         <strong>오디오 변환기</strong>
-        <span>MP3와 WAV를 브라우저에서 변환하고 음질 옵션을 조절</span>
+        <span>MP3와 WAV를 변환하고 음질 옵션을 조절</span>
       </div>
 
       <label
@@ -274,7 +152,6 @@ export function AudioConverterTool() {
             clearResult();
             setFile(event.target.files?.[0] ?? null);
             setStatus("idle");
-            setProgress(0);
             setErrorMsg("");
           }}
         />
@@ -283,7 +160,7 @@ export function AudioConverterTool() {
           {file ? file.name : "MP3 또는 WAV 파일 선택"}
         </strong>
         <span style={{ maxWidth: "100%", fontSize: 13, lineHeight: 1.5, overflowWrap: "anywhere" }}>
-          {file ? `${file.type || "audio"} · ${formatBytes(file.size)}` : "파일은 서버로 업로드되지 않고 현재 브라우저에서 처리됩니다."}
+          {file ? `${file.type || "audio"} · ${formatBytes(file.size)}` : "선택한 파일은 변환 후 바로 다운로드할 수 있습니다."}
         </span>
       </label>
 
@@ -391,9 +268,9 @@ export function AudioConverterTool() {
       </div>
 
       <div className="tool-actions-row">
-        <button type="button" onClick={handleConvert} disabled={!file || status === "loading-core" || status === "converting"}>
+        <button type="button" onClick={handleConvert} disabled={!file || status === "converting"}>
           <Download size={16} />
-          {status === "loading-core" ? "FFmpeg 로딩 중..." : status === "converting" ? "변환 중..." : `${format.toUpperCase()}로 변환`}
+          {status === "converting" ? "변환 중..." : `${format.toUpperCase()}로 변환`}
         </button>
         {(file || result || status === "error") && (
           <button type="button" onClick={resetAll}>
@@ -402,13 +279,8 @@ export function AudioConverterTool() {
         )}
       </div>
 
-      {(status === "loading-core" || status === "converting") && (
-        <div className="audio-converter-progress" aria-label="변환 진행률" style={{ height: 8, overflow: "hidden", borderRadius: 999, background: "var(--border)" }}>
-          <span style={{ display: "block", height: "100%", width: `${progress}%`, borderRadius: "inherit", background: "var(--accent-green)", transition: "width 0.25s ease" }} />
-        </div>
-      )}
-      {log && (status === "loading-core" || status === "converting") && (
-        <p className="vocal-status-text">{log}</p>
+      {status === "converting" && (
+        <p className="vocal-status-text">FFmpeg로 오디오를 변환하고 있습니다. 파일 길이와 품질 옵션에 따라 시간이 달라질 수 있습니다.</p>
       )}
       {status === "error" && <p className="vocal-status-text error">{errorMsg}</p>}
 
