@@ -5855,7 +5855,7 @@ function detectMediaSourceLabel(url: string) {
 
 function InstagramAudioTool() {
   const [url, setUrl] = useState("");
-  const [format, setFormat] = useState<MediaFormat>("mp4");
+  const [format, setFormat] = useState<MediaFormat>("mp3");
   const [withTranscript, setWithTranscript] = useState(false);
   const [localHelper, setLocalHelper] = useState<LocalYoutubeHelperState>("checking");
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -5920,7 +5920,8 @@ function InstagramAudioTool() {
         let downloaded = false;
         if (helperReady && localFormat) {
           try {
-            const localFile = await downloadWithLocalYoutubeHelper(item.url, localFormat);
+            const localTimeout = item.format === "mp4" ? 90_000 : 60_000;
+            const localFile = await downloadWithLocalYoutubeHelper(item.url, localFormat, localTimeout);
             localMediaForTranscript = { blob: localFile.blob, filename: localFile.filename };
             updateItem(item.id, { progress: 80 });
 
@@ -5979,7 +5980,7 @@ function InstagramAudioTool() {
               setLocalHelper(helperReady ? "available" : "missing");
             }
             if (helperReady) {
-              const localFile = await downloadWithLocalYoutubeHelper(item.url, "audio-mp3");
+              const localFile = await downloadWithLocalYoutubeHelper(item.url, "audio-mp3", 60_000);
               localMediaForTranscript = { blob: localFile.blob, filename: localFile.filename };
             }
           } catch {
