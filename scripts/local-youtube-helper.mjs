@@ -13,7 +13,7 @@ const HOST = process.env.GOMDOL_HELPER_HOST || "127.0.0.1";
 const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
 const COOKIE_BROWSER = (process.env.YT_HELPER_COOKIES_BROWSER || "chrome").trim();
 
-const MEDIA_URL_RE = /^https?:\/\/(www\.)?((youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+|instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+)/i;
+const MEDIA_URL_RE = /^https?:\/\/((www\.)?(youtube\.com\/(watch\?.*v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]+|((www|m|vm|vt)\.)?tiktok\.com\/.+|(www\.)?instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+)/i;
 
 function corsHeaders(extra = {}) {
   return {
@@ -40,7 +40,7 @@ function sanitizeFilename(name) {
     .replace(/[\\/:*?"<>|]/g, "-")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 180) || "youtube-download";
+    .slice(0, 180) || "media-download";
 }
 
 function contentTypeFor(file) {
@@ -159,7 +159,7 @@ async function handleDownload(req, res) {
   const format = typeof payload.format === "string" ? payload.format : "audio-mp3";
 
   if (!MEDIA_URL_RE.test(url)) {
-    sendJson(res, 400, { error: "유효한 YouTube 또는 Instagram URL을 입력해 주세요." });
+    sendJson(res, 400, { error: "유효한 YouTube, Instagram 또는 TikTok URL을 입력해 주세요." });
     return;
   }
 
