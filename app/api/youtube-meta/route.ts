@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { getYtDlpCookieArgs, getYtDlpNetworkArgs } from "@/lib/ytdlpCookies";
 
 export const maxDuration = 30;
 const execFileAsync = promisify(execFile);
@@ -12,11 +13,13 @@ export async function POST(req: NextRequest) {
   }
 
   const ytdlpPath = process.env.YTDLP_PATH || "yt-dlp";
+  const cookieArgs = await getYtDlpCookieArgs();
+  const networkArgs = getYtDlpNetworkArgs();
 
   try {
     const { stdout } = await execFileAsync(
       ytdlpPath,
-      ["--dump-single-json", "--no-playlist", "--no-warnings", url],
+      [...cookieArgs, ...networkArgs, "--dump-single-json", "--no-playlist", "--no-warnings", url],
       { maxBuffer: 10 * 1024 * 1024, timeout: 25_000 },
     );
     const data = JSON.parse(stdout);
