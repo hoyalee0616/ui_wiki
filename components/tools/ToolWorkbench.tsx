@@ -5951,10 +5951,13 @@ function InstagramAudioTool() {
           updateItem(item.id, { progress: 80 });
 
           const blob = await dlRes.blob();
+          const fallback = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
+          const filename = sanitizeDownloadName(getFilenameFromDisposition(dlRes.headers.get("Content-Disposition"), fallback));
+          localMediaForTranscript = { blob, filename };
           const objectUrl = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = objectUrl;
-          a.download = item.format === "mp4" ? `video_${item.id.slice(0, 6)}.mp4` : `audio_${item.id.slice(0, 6)}.${item.format}`;
+          a.download = filename;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);

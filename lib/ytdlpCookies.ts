@@ -191,7 +191,7 @@ export function getYtDlpRetryArgSets(cookieArgs: string[], networkArgs: string[]
 
 export function shouldRetryYtDlpWithImpersonation(message: string) {
   const clean = cleanYtDlpError(message);
-  return /bot|captcha|confirm you'?re not a bot|sign in to confirm|http error 403|forbidden|cloudflare|tls|impersonat|unable to download webpage/i.test(clean);
+  return /bot|captcha|confirm you'?re not a bot|sign in to confirm|http error 403|forbidden|cloudflare|tls|impersonat|unable to download webpage|n challenge solving failed|js challenge|requested format is not available|format extraction|only images are available/i.test(clean);
 }
 
 export function getYtDlpNetworkStatus(): NetworkStatus {
@@ -251,7 +251,7 @@ export function formatYtDlpError(message: string) {
     ].join("\n");
   }
 
-  if (/n challenge solving failed|requested format is not available|only images are available/i.test(clean)) {
+  if (/n challenge solving failed|js challenge|requested format is not available|format extraction|only images are available/i.test(clean)) {
     return [
       "영상 포맷 추출에 실패했습니다.",
       "서버의 yt-dlp JS challenge 처리가 실패한 상태입니다.",
