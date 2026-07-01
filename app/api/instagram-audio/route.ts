@@ -14,6 +14,10 @@ function cleanup(path: string) {
 
 type Format = "mp3" | "wav" | "mp4";
 
+function isTikTokUrl(url: string) {
+  return /^https?:\/\/((www|m|vm|vt)\.)?tiktok\.com\/.+/i.test(url);
+}
+
 function sanitizeFilename(name: string) {
   return name
     .normalize("NFC")
@@ -85,8 +89,9 @@ export async function POST(req: NextRequest) {
   if (!url || typeof url !== "string") {
     return NextResponse.json({ error: "URL이 필요합니다." }, { status: 400 });
   }
+  const normalizedUrl = url.trim();
 
-  const isProfileReelsPage = /instagram\.com\/[^/]+\/reels\/?$/.test(url);
+  const isProfileReelsPage = /instagram\.com\/[^/]+\/reels\/?$/.test(normalizedUrl);
   if (isProfileReelsPage) {
     return NextResponse.json(
       { error: "계정의 릴스 목록 페이지는 지원하지 않습니다. 개별 릴스 영상을 열고 '⋯ → 링크 복사'로 URL을 가져오세요." },
@@ -94,12 +99,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const isInstagram = /instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+/.test(url);
-  const isYoutube = /youtube\.com\/(watch|shorts)|youtu\.be\//.test(url);
+  const isInstagram = /instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+/.test(normalizedUrl);
+  const isYoutube = /youtube\.com\/(watch|shorts)|youtu\.be\//.test(normalizedUrl);
+  const isTikTok = isTikTokUrl(normalizedUrl);
 
-  if (!isInstagram && !isYoutube) {
+  if (!isInstagram && !isYoutube && !isTikTok) {
     return NextResponse.json(
-      { error: "Instagram 또는 YouTube URL을 입력해 주세요." },
+      { error: "Instagram, YouTube 또는 TikTok URL을 입력해 주세요." },
       { status: 400 },
     );
   }
@@ -109,7 +115,7 @@ export async function POST(req: NextRequest) {
   const id = randomUUID();
   const cookieArgs = await getYtDlpCookieArgs();
   const networkArgs = getYtDlpNetworkArgs();
-  const title = await fetchTitle(ytdlpPath, url, cookieArgs, networkArgs);
+  const title = await fetchTitle(ytdlpPath, normalizedUrl, cookieArgs, networkArgs);
 
   // ── MP4 영상 다운로드 ──────────────────────────────────────
   if (format === "mp4") {
@@ -127,7 +133,7 @@ export async function POST(req: NextRequest) {
           "--no-playlist",
           "--output", mp4File,
           "--quiet",
-          url,
+          normalizedUrl,
         ]);
         proc.stderr.on("data", (d: Buffer) => {
           const text = d.toString();
@@ -177,7 +183,7 @@ export async function POST(req: NextRequest) {
         "--no-playlist",
         "--output", rawFile,
         "--quiet",
-        url,
+        normalizedUrl,
       ]);
       proc.stderr.on("data", (d: Buffer) => {
         const text = d.toString();
