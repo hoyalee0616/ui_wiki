@@ -61,3 +61,32 @@ export async function fetchRemoteMediaHelperTranscript(url: string, language = "
 
   return (await response.text()).trim();
 }
+
+export async function fetchRemoteMediaHelperFileTranscript(
+  buffer: Buffer,
+  filename: string,
+  format = "txt",
+  language = "auto",
+) {
+  const helperUrl = getRemoteMediaHelperUrl();
+  if (!helperUrl) return null;
+
+  const response = await fetch(`${helperUrl}/transcribe-file`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename,
+      format,
+      language,
+      base64: buffer.toString("base64"),
+    }),
+    signal: AbortSignal.timeout(60 * 60 * 1000),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text().catch(() => "");
+    throw new Error(payload || `remote helper file transcript failed: ${response.status}`);
+  }
+
+  return (await response.text()).trim();
+}

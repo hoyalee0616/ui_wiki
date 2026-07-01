@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 
@@ -60,13 +60,13 @@ function subtitleContentType(format) {
   return "text/plain; charset=utf-8";
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let body = "";
     req.setEncoding("utf8");
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1024 * 1024) {
+      if (body.length > maxBytes) {
         reject(new Error("요청이 너무 큽니다."));
         req.destroy();
       }
@@ -294,6 +294,44 @@ async function handleTranscribeUrl(req, res) {
   }
 }
 
+async function handleTranscribeFile(req, res) {
+  const body = await readBody(req, 512 * 1024 * 1024);
+  const payload = JSON.parse(body || "{}");
+  const filename = sanitizeFilename(typeof payload.filename === "string" ? payload.filename : "media");
+  const format = typeof payload.format === "string" ? payload.format : "txt";
+  const language = typeof payload.language === "string" ? payload.language : "auto";
+  const base64 = typeof payload.base64 === "string" ? payload.base64 : "";
+  const buffer = Buffer.from(base64, "base64");
+
+  if (!buffer.length) {
+    sendJson(res, 400, { error: "자막으로 변환할 파일이 필요합니다." });
+    return;
+  }
+
+  const workDir = await mkdtemp(join(tmpdir(), `gomdol-tr-file-${randomUUID()}-`));
+  const inputFile = join(workDir, filename || `media-${randomUUID()}`);
+
+  try {
+    await writeFile(inputFile, buffer);
+    const result = await transcribeMediaFile(inputFile, workDir, format, language);
+    const payloadText = result.text || "";
+
+    res.writeHead(200, corsHeaders({
+      "Content-Type": subtitleContentType(result.format),
+      "Content-Length": String(Buffer.byteLength(payloadText)),
+      "Content-Disposition": `attachment; filename="subtitle.${result.format}"`,
+      "Cache-Control": "no-store",
+    }));
+    res.end(payloadText);
+  } catch (error) {
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message.slice(0, 900) : "로컬 파일 자막 생성에 실패했습니다.",
+    });
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function handleHealth(res) {
   const dependency = async (command, args) => {
     try {
@@ -346,6 +384,11 @@ createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/transcribe-url") {
       await handleTranscribeUrl(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/transcribe-file") {
+      await handleTranscribeFile(req, res);
       return;
     }
 

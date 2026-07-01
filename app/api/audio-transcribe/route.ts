@@ -4,6 +4,7 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { fetchRemoteMediaHelperFileTranscript, fetchRemoteMediaHelperTranscript } from "@/lib/remoteMediaHelper";
 
 export const maxDuration = 600;
 
@@ -25,6 +26,9 @@ export async function POST(req: NextRequest) {
   const wavFile = join(tmpdir(), `tr_${id}.wav`);
   let format: OutputFormat = "srt";
   let language = "auto";
+  let sourceUrl = "";
+  let uploadedBuffer: Buffer | null = null;
+  let uploadedFilename = "media";
 
   try {
     if (ct.includes("application/json")) {
@@ -33,6 +37,7 @@ export async function POST(req: NextRequest) {
       format = (body.format as OutputFormat) || "srt";
       language = body.language || "auto";
       if (!url) return NextResponse.json({ error: "URL이 필요합니다." }, { status: 400 });
+      sourceUrl = url;
 
       await new Promise<void>((resolve, reject) => {
         const proc = spawn(ytdlpPath, [
@@ -54,6 +59,8 @@ export async function POST(req: NextRequest) {
       if (!file) return NextResponse.json({ error: "파일이 필요합니다." }, { status: 400 });
 
       const buf = Buffer.from(await file.arrayBuffer());
+      uploadedBuffer = buf;
+      uploadedFilename = file.name || "media";
       await writeFile(rawFile, buf);
     }
 
@@ -111,6 +118,29 @@ export async function POST(req: NextRequest) {
     cleanup(rawFile);
     cleanup(wavFile);
     console.error("[transcribe error]", err);
+
+    try {
+      const helperText = sourceUrl
+        ? await fetchRemoteMediaHelperTranscript(sourceUrl, language)
+        : uploadedBuffer
+          ? await fetchRemoteMediaHelperFileTranscript(uploadedBuffer, uploadedFilename, format, language)
+          : null;
+
+      if (helperText) {
+        const contentType = format === "txt" ? "text/plain" : (format === "srt" ? "application/x-subrip" : "text/vtt");
+        return new Response(helperText, {
+          headers: {
+            "Content-Type": `${contentType}; charset=utf-8`,
+            "Content-Disposition": `attachment; filename="subtitle.${format}"`,
+            "Cache-Control": "no-store",
+            "X-Gomdol-Transcript-Source": "remote-helper",
+          },
+        });
+      }
+    } catch (helperErr) {
+      console.error("[remote transcribe fallback error]", helperErr);
+    }
+
     return NextResponse.json(
       { error: "자막 생성에 실패했습니다." },
       { status: 500 },
