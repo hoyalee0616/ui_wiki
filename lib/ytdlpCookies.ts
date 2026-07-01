@@ -100,6 +100,17 @@ export function getYtDlpNetworkArgs() {
     args.push("--js-runtimes", jsRuntime);
   }
 
+  const remoteComponents = (
+    process.env.YTDLP_REMOTE_COMPONENTS ||
+    process.env.YOUTUBE_REMOTE_COMPONENTS ||
+    process.env.INSTAGRAM_REMOTE_COMPONENTS ||
+    "ejs:github"
+  ).trim();
+
+  if (remoteComponents && remoteComponents.toLowerCase() !== "none") {
+    args.push("--remote-components", remoteComponents);
+  }
+
   if (proxy) args.push("--proxy", proxy);
   if (forceIp === "4") args.push("--force-ipv4");
   if (forceIp === "6") args.push("--force-ipv6");
@@ -169,7 +180,7 @@ export function formatYtDlpError(message: string) {
     return [
       "영상 포맷 추출에 실패했습니다.",
       "서버의 yt-dlp JS challenge 처리가 실패한 상태입니다.",
-      "YTDLP_JS_RUNTIME=node 설정과 최신 yt-dlp가 필요합니다.",
+      "YTDLP_JS_RUNTIME=node, YTDLP_REMOTE_COMPONENTS=ejs:github 설정과 최신 yt-dlp가 필요합니다.",
     ].join("\n");
   }
 
